@@ -51,7 +51,7 @@ SELECT
   MIN(VEC_COSINE_DISTANCE(f_auth.embedding, c.current_embedding)) AS auth_distance,
   MIN(VEC_COSINE_DISTANCE(f_atk.embedding, c.current_embedding)) AS attack_distance,
   COUNT(CASE WHEN e.verdict='flagged' AND e.ts > NOW() - INTERVAL 90 DAY THEN 1 END) AS recent_flags,
-  AVG(e.confidence) FILTER (WHERE e.ts > NOW() - INTERVAL 30 DAY) AS trailing_confidence,
+  AVG(CASE WHEN e.ts > NOW() - INTERVAL 30 DAY THEN e.confidence END) AS trailing_confidence,
   p.policy_version,
   p.threshold_auth,
   p.threshold_attack,
