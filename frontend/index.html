@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Aubric AML — Authenticity Memory Layer</title>
+<meta name="viewport" content="width=1280"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,500;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="styles/system.css"/>
+<style>
+  .tabbar {
+    position: sticky; top: 0; z-index: 40;
+    display: flex; align-items: stretch;
+    background: var(--paper); border-bottom: 1px solid var(--ink);
+    font-family: var(--mono);
+  }
+  .tabbar .brand {
+    display:flex; align-items:center; gap:10px;
+    padding: 10px 18px; border-right: 1px solid var(--ink);
+    background: var(--ink); color: var(--paper);
+    min-width: 320px;
+  }
+  .tabbar .brand b { font-weight: 500; letter-spacing: 0.06em; }
+  .tabbar .tab {
+    padding: 10px 18px; border-right: 1px solid var(--rule);
+    font-size: var(--t-2); letter-spacing: 0.14em; text-transform: uppercase;
+    cursor: pointer; color: var(--ink-3); background: var(--paper);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .tabbar .tab:hover { color: var(--ink); }
+  .tabbar .tab.active { color: var(--ink); background: var(--paper-2); }
+  .tabbar .tab.active::before {
+    content:""; width:8px; height:8px; background: var(--ink);
+  }
+  .tabbar .meta { margin-left: auto; display:flex; align-items:center; gap:14px; padding: 0 18px; }
+  .tabbar .meta .eyebrow { color: var(--ink-3); }
+
+  /* Tweaks panel */
+  .tweaks {
+    position: fixed; right: 18px; bottom: 18px; z-index: 60;
+    width: 300px; background: var(--paper);
+    border: 1px solid var(--ink);
+    font-family: var(--mono); font-size: var(--t-2);
+    box-shadow: 4px 4px 0 0 var(--ink);
+    display: none;
+  }
+  .tweaks.on { display: block; }
+  .tweaks .head {
+    padding: 8px 12px; background: var(--ink); color: var(--paper);
+    letter-spacing: 0.12em; text-transform: uppercase;
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .tweaks .body { padding: 12px; display:flex; flex-direction:column; gap:10px; }
+  .tweaks .row { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .tweaks .row label { color: var(--ink-3); letter-spacing:0.08em; text-transform:uppercase; font-size: var(--t-1); }
+  .tweaks .segbtn {
+    display:flex; border:1px solid var(--ink); width:100%;
+  }
+  .tweaks .segbtn button {
+    flex:1; padding:6px 4px; background:var(--paper); color:var(--ink); border:none;
+    border-right:1px solid var(--rule);
+    font-family:var(--mono); font-size: var(--t-1); letter-spacing:0.1em; text-transform:uppercase;
+    cursor:pointer;
+  }
+  .tweaks .segbtn button:last-child { border-right:none; }
+  .tweaks .segbtn button.on { background:var(--ink); color:var(--paper); }
+</style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script src="scripts/backend.js"></script>
+<script type="text/babel" src="scripts/primitives.jsx"></script>
+<script type="text/babel" src="scripts/tab_console.jsx"></script>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const TABS = [
+  { id: "console", label: "Dashboard", sub: "Live challenges" },
+];
+
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "dense": false,
+  "showCountdown": true
+}/*EDITMODE-END*/;
+
+function App() {
+  const [tab, setTab] = useState(() => {
+    const t = localStorage.getItem("aml.tab");
+    return TABS.find(x => x.id === t) ? t : "console";
+  });
+  useEffect(() => { localStorage.setItem("aml.tab", tab); }, [tab]);
+
+  // Tweak host wiring
+  const [editOn, setEditOn] = useState(false);
+  const [tweaks, setTweaks] = useState(TWEAK_DEFAULTS);
+
+  useEffect(() => {
+    const onMsg = (e) => {
+      const d = e.data || {};
+      if (d.type === "__activate_edit_mode") setEditOn(true);
+      if (d.type === "__deactivate_edit_mode") setEditOn(false);
+    };
+    window.addEventListener("message", onMsg);
+    window.parent && window.parent.postMessage({ type: "__edit_mode_available" }, "*");
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
+
+  const setTweak = (k, v) => {
+    setTweaks(prev => {
+      const next = { ...prev, [k]: v };
+      window.parent && window.parent.postMessage({ type: "__edit_mode_set_keys", edits: { [k]: v } }, "*");
+      return next;
+    });
+    document.body.classList.toggle("dense", k === "dense" ? v : tweaks.dense);
+  };
+
+  const Active = window.ConsoleTab;
+
+  return (
+    <div>
+      <div className="tabbar">
+        <div className="brand">
+          <div style={{width:10, height:10, background:"var(--paper)"}}/>
+          <b>AUBRIC · AML</b>
+        </div>
+        {TABS.map(t => (
+          <div key={t.id} className={`tab ${tab === t.id ? "active":""}`} onClick={()=>setTab(t.id)}>
+            {t.label}
+            <span className="eyebrow" style={{color:"var(--ink-4)"}}>&middot; {t.sub}</span>
+          </div>
+        ))}
+      </div>
+
+      {Active ? <Active tweaks={tweaks}/> : <div style={{padding:40}}>Loading…</div>}
+
+      <div className={`tweaks ${editOn ? "on":""}`}>
+        <div className="head">
+          <span>Tweaks</span>
+          <span style={{opacity:0.6}}>evidence-board</span>
+        </div>
+        <div className="body">
+          <div className="row">
+            <label>Start tab</label>
+            <div className="segbtn">
+              {TABS.map(t => (
+                <button key={t.id} className={tab===t.id?"on":""} onClick={()=>setTab(t.id)}>{t.label}</button>
+              ))}
+            </div>
+          </div>
+          <div className="row">
+            <label>Density</label>
+            <div className="segbtn">
+              <button className={!tweaks.dense?"on":""} onClick={()=>setTweak("dense", false)}>Standard</button>
+              <button className={tweaks.dense?"on":""} onClick={()=>setTweak("dense", true)}>Dense</button>
+            </div>
+          </div>
+          <div className="row">
+            <label>Countdown grid</label>
+            <div className="segbtn">
+              <button className={tweaks.showCountdown?"on":""} onClick={()=>setTweak("showCountdown", true)}>Show</button>
+              <button className={!tweaks.showCountdown?"on":""} onClick={()=>setTweak("showCountdown", false)}>Hide</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

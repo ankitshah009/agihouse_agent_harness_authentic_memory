@@ -1,0 +1,140 @@
+{
+  "name": "aubric-aml",
+  "version": "1.0.0",
+  "description": "MCP tool contract for Aubric AML (authenticity memory)",
+  "server": {
+    "transport": "stdio",
+    "runtime": "python 3.10+",
+    "entrypoint": "python mcp_server.py"
+  },
+  "tools": [
+    {
+      "name": "aml_authenticity_decide",
+      "description": "Evaluate a challenge against short-term, semantic, episodic, and procedural memory in one pass.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "challenge_id": {"type": "string", "description": "Active challenge identifier from active_challenges"},
+          "tenant_id": {"type": "string", "description": "Tenant partition for the challenge"},
+          "channel": {"type": "string", "description": "Optional caller channel (kyc_voice, voice_fraud, doc_upload)", "default": "api"}
+        },
+        "required": ["challenge_id", "tenant_id"]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "decision": {"type": "string", "enum": ["allow", "review", "deny"]},
+          "reason": {"type": "string"},
+          "scores": {
+            "type": "object",
+            "properties": {
+              "auth_distance": {"type": "number"},
+              "attack_distance": {"type": "number"},
+              "recent_flags_90d": {"type": "integer"},
+              "trailing_confidence": {"type": "number"},
+              "policy_version": {"type": "string"}
+            },
+            "required": ["auth_distance", "attack_distance", "policy_version"]
+          },
+          "applied_policy": {"type": "string"},
+          "query_ms": {"type": "number"},
+          "policy_sql_ref": {"type": "string"}
+        },
+        "required": ["decision", "reason", "scores", "applied_policy", "query_ms"]
+      },
+      "query_template": "SELECT\n  c.challenge_id,\n  c.customer_id,\n  c.modality,\n  MIN(VEC_COSINE_DISTANCE(f_auth.embedding, c.current_embedding)) AS auth_distance,\n  MIN(VEC_COSINE_DISTANCE(f_atk.embedding, c.current_embedding)) AS attack_distance,\n  COUNT(CASE WHEN e.verdict='flagged' AND e.ts > NOW() - INTERVAL 90 DAY THEN 1 END) AS recent_flags,\n  AVG(CASE WHEN e.ts > NOW() - INTERVAL 30 DAY THEN e.confidence ELSE NULL END) AS trailing_confidence,\n  p.policy_version,\n  p.threshold_auth,\n  p.threshold_attack,\n  p.escalation_rule\nFROM active_challenges c\nLEFT JOIN authentic_fingerprints f_auth\n  ON f_auth.customer_id = c.customer_id AND f_auth.modality = c.modality AND f_auth.is_current = TRUE\nLEFT JOIN attack_fingerprints f_atk\n  ON f_atk.modality = c.modality\nLEFT JOIN episodic_events e\n  ON e.customer_id = c.customer_id\nLEFT JOIN procedural_policies p\n  ON p.tenant_id = c.tenant_id AND p.risk_tier = c.risk_tier AND p.is_active = TRUE\nWHERE c.challenge_id = ?\nGROUP BY c.challenge_id, c.customer_id, c.modality,\n         p.policy_version, p.threshold_auth, p.threshold_attack, p.escalation_rule;\n"
+    },
+    {
+      "name": "aml_log_episode",
+      "description": "Append immutable episodic event used for drift detection and replay QA.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tenant_id": {"type": "string"},
+          "customer_id": {"type": "string"},
+          "challenge_id": {"type": "string"},
+          "modality": {"type": "string", "enum": ["voice", "face", "document", "behavior", "writing"]},
+          "asset_hash": {"type": "string"},
+          "verdict": {"type": "string", "enum": ["authentic", "suspicious", "fraud", "review"]},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "authenticity_score": {"type": "number", "minimum": 0, "maximum": 1},
+          "explainability_json": {"type": "object"},
+          "human_outcome": {"type": "string"},
+          "ground_truth": {"type": "string", "enum": ["confirmed_authentic", "confirmed_fraud", "unknown"]},
+          "ts": {"type": "string", "format": "date-time"},
+          "branch_run_id": {"type": "string"}
+        },
+        "required": ["tenant_id", "customer_id", "challenge_id", "modality", "asset_hash", "verdict", "ts"]
+      },
+      "idempotency": "event_id can be generated from challenge_id+ts client-side to ensure replay-safe writes"
+    },
+    {
+      "name": "aml_upsert_authentic_fingerprint",
+      "description": "Insert or refresh customer authentic fingerprint vectors and set previous vectors to historical state.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tenant_id": {"type": "string"},
+          "customer_id": {"type": "string"},
+          "modality": {"type": "string", "enum": ["voice", "face", "document", "behavior", "writing"]},
+          "embedding": {"type": "array", "items": {"type": "number"}, "minItems": 1},
+          "source_event_id": {"type": "string"},
+          "quality_score": {"type": "number", "minimum": 0, "maximum": 1}
+        },
+        "required": ["tenant_id", "customer_id", "modality", "embedding"]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "fingerprint_id": {"type": "integer"},
+          "is_current": {"type": "boolean"},
+          "deactivated_prior": {"type": "integer"}
+        },
+        "required": ["fingerprint_id", "is_current"]
+      }
+    },
+    {
+      "name": "aml_run_update_cycle",
+      "description": "Run drift-driven replay + adversarial checks in an isolated branch and return promotion recommendation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tenant_id": {"type": "string"},
+          "window_days": {"type": "integer", "minimum": 7, "maximum": 365},
+          "drift_signal": {"type": "string"},
+          "candidate_policy_version": {"type": "string"},
+          "prewarm_branch": {"type": "string"},
+          "run_on_exa_intel": {"type": "boolean", "default": true}
+        },
+        "required": ["tenant_id", "window_days", "drift_signal"]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "branch_run_id": {"type": "string"},
+          "branch_name": {"type": "string"},
+          "replay_size": {"type": "integer"},
+          "delta_fpr": {"type": "number"},
+          "delta_fnr": {"type": "number"},
+          "adversarial_passed": {"type": "boolean"},
+          "recommendation": {"type": "string", "enum": ["promote", "archive"]},
+          "artifact_uri": {"type": "string"}
+        },
+        "required": ["branch_run_id", "recommendation", "artifact_uri"]
+      }
+    },
+    {
+      "name": "aml_audit_bundle",
+      "description": "Export archive-grade evidence for one branch as JSON for Article 50-style audit review.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tenant_id": {"type": "string"},
+          "branch_run_id": {"type": "string"},
+          "format": {"type": "string", "enum": ["json", "pdf", "csv"], "default": "json"}
+        },
+        "required": ["tenant_id", "branch_run_id"]
+      }
+    }
+  ]
+}

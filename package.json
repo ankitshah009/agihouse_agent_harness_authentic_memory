@@ -1,0 +1,23 @@
+{
+  "name": "aubric-aml-demo",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "dev:api": "python scripts/demo_api_server.py",
+    "dev:all": "concurrently -k \"pnpm dev\" \"pnpm dev:api\"",
+    "demo": "pnpm dev:all",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "next lint"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "dependencies": {
+    "next": "14.2.5",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "packageManager": "pnpm@10.8.0"
+}

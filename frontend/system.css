@@ -1,0 +1,245 @@
+/* ─────────────────────────────────────────────────────────────────
+   AUBRIC AML — design system
+   Evidence-board / forensic register.
+   Warm off-white paper, ink black, oxidized-red alarm, ink-blue verify.
+   Monospace dominant. No gradients. No emoji.
+   ───────────────────────────────────────────────────────────────── */
+
+:root {
+  /* paper + ink */
+  --paper:      oklch(0.975 0.008 85);   /* warm off-white */
+  --paper-2:    oklch(0.955 0.010 85);   /* slightly toned */
+  --paper-3:    oklch(0.925 0.012 85);   /* panel tone */
+  --ink:        oklch(0.18 0.010 60);    /* near-black warm */
+  --ink-2:      oklch(0.35 0.010 60);    /* body */
+  --ink-3:      oklch(0.55 0.010 60);    /* caption */
+  --ink-4:      oklch(0.75 0.008 60);    /* hairline */
+  --rule:       oklch(0.80 0.008 60);    /* rules / borders */
+
+  /* single alarm, single verify */
+  --alarm:      oklch(0.55 0.18 25);     /* oxidized red */
+  --alarm-wash: oklch(0.94 0.04 25);
+  --verify:     oklch(0.45 0.09 250);    /* ink blue */
+  --verify-wash:oklch(0.93 0.03 250);
+  --amber:      oklch(0.70 0.14 75);     /* warning / pending */
+  --amber-wash: oklch(0.95 0.05 75);
+
+  /* type */
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --serif: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+
+  /* scale */
+  --t-9: 72px;
+  --t-8: 56px;
+  --t-7: 44px;
+  --t-6: 32px;
+  --t-5: 22px;
+  --t-4: 17px;
+  --t-3: 14px;
+  --t-2: 12px;
+  --t-1: 10.5px;
+
+  /* rhythm */
+  --gutter: 24px;
+  --hair: 1px;
+  --dash: 1px dashed var(--rule);
+  --solid: 1px solid var(--rule);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--paper); color: var(--ink); }
+body {
+  font-family: var(--mono);
+  font-size: var(--t-3);
+  line-height: 1.45;
+  font-feature-settings: "zero", "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+/* paper has a faint grid — like a quadrille pad, but subtle */
+.paper {
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(to right, rgba(30,20,10,0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(30,20,10,0.035) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: -1px -1px;
+}
+
+/* typography */
+.eyebrow {
+  font-family: var(--mono);
+  font-size: var(--t-1);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum", "zero"; }
+.serif { font-family: var(--serif); font-weight: 400; }
+.mono { font-family: var(--mono); }
+.caps { text-transform: uppercase; letter-spacing: 0.08em; }
+
+/* primitives */
+.hr { height: 1px; background: var(--rule); width: 100%; }
+.hr-dash { border: 0; border-top: 1px dashed var(--rule); }
+.rule-dot {
+  border: 0;
+  height: 1px;
+  background-image: radial-gradient(circle, var(--ink-3) 1px, transparent 1.5px);
+  background-size: 6px 1px;
+  background-repeat: repeat-x;
+}
+
+/* file-card / evidence card */
+.card {
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  position: relative;
+}
+.card.inset { border: 1px solid var(--rule); }
+.card .head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  font-size: var(--t-2);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.card.inset .head { background: var(--paper-3); color: var(--ink); border-bottom: 1px solid var(--rule); }
+.card .body { padding: 14px; }
+
+/* tag / chip */
+.tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 7px;
+  border: 1px solid var(--ink);
+  font-size: var(--t-1);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: var(--paper);
+  line-height: 1.4;
+}
+.tag.alarm { border-color: var(--alarm); color: var(--alarm); background: var(--alarm-wash); }
+.tag.verify { border-color: var(--verify); color: var(--verify); background: var(--verify-wash); }
+.tag.amber { border-color: var(--amber); color: oklch(0.45 0.14 75); background: var(--amber-wash); }
+.tag.ghost { border-color: var(--rule); color: var(--ink-3); }
+.tag.solid { background: var(--ink); color: var(--paper); }
+
+/* dot indicator */
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink); display: inline-block; }
+.dot.alarm { background: var(--alarm); }
+.dot.verify { background: var(--verify); }
+.dot.amber { background: var(--amber); }
+.dot.pulse { animation: pulse 1.4s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+/* button */
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: var(--t-2);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.btn:hover { background: var(--ink); color: var(--paper); }
+.btn.primary { background: var(--ink); color: var(--paper); }
+.btn.primary:hover { background: var(--paper); color: var(--ink); }
+.btn.alarm { border-color: var(--alarm); color: var(--alarm); }
+.btn.alarm:hover { background: var(--alarm); color: var(--paper); }
+
+/* stamp — used for things like "EVIDENCE", "CLASSIFIED", verdicts */
+.stamp {
+  display: inline-block;
+  border: 2px solid currentColor;
+  padding: 4px 10px;
+  font-family: var(--mono);
+  font-size: var(--t-2);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  transform: rotate(-2deg);
+  color: var(--ink);
+  opacity: 0.85;
+}
+.stamp.alarm { color: var(--alarm); }
+.stamp.verify { color: var(--verify); }
+
+/* crosshair corners for evidence cards */
+.xhair { position: relative; }
+.xhair::before, .xhair::after,
+.xhair > .xh-tr, .xhair > .xh-br {
+  content: ""; position: absolute; width: 10px; height: 10px;
+  border-color: var(--ink); border-style: solid; border-width: 0;
+}
+.xhair::before { top: -1px; left: -1px; border-top-width: 1px; border-left-width: 1px; }
+.xhair::after  { bottom: -1px; left: -1px; border-bottom-width: 1px; border-left-width: 1px; }
+.xhair > .xh-tr { top: -1px; right: -1px; border-top-width: 1px; border-right-width: 1px; }
+.xhair > .xh-br { bottom: -1px; right: -1px; border-bottom-width: 1px; border-right-width: 1px; }
+
+/* kv (evidence field/value rows) */
+.kv { display: grid; grid-template-columns: 140px 1fr; gap: 6px 16px; font-size: var(--t-3); }
+.kv dt { color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.08em; font-size: var(--t-1); align-self: center; }
+.kv dd { margin: 0; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* hatched fill (for "archived" or "deprecated") */
+.hatch {
+  background-image: repeating-linear-gradient(
+    -45deg, var(--rule) 0 1px, transparent 1px 6px
+  );
+}
+
+/* placeholder — clearly marked backend hook */
+.backend-hook {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 1px 6px;
+  border: 1px dashed var(--verify);
+  color: var(--verify);
+  background: var(--verify-wash);
+  font-family: var(--mono); font-size: var(--t-1);
+  letter-spacing: 0.05em;
+}
+.backend-hook::before { content: "{"; opacity: 0.6; }
+.backend-hook::after  { content: "}"; opacity: 0.6; }
+
+/* ticker */
+.ticker {
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  overflow: hidden;
+  position: relative;
+  height: 26px;
+  background: var(--paper-2);
+}
+.ticker > div {
+  display: inline-flex; gap: 28px; white-space: nowrap;
+  animation: tick 60s linear infinite;
+  padding: 4px 0;
+  font-size: var(--t-1); letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+@keyframes tick {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+/* scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--ink-4); border: 2px solid var(--paper); }
+::-webkit-scrollbar-track { background: var(--paper); }
+
+/* subtle screen flicker/film texture — very light */
+.film::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image: radial-gradient(rgba(0,0,0,0.035) 1px, transparent 1px);
+  background-size: 3px 3px;
+  mix-blend-mode: multiply;
+  opacity: 0.35;
+}

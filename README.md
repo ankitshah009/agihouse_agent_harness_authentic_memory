@@ -1,228 +1,137 @@
-# Aubric AML — Authenticity Memory Layer
+# Aubric AML — Authenticity Memory for Agents
 
-Aubric AML is a persistent memory substrate for trust & safety agents. In financial-services workflows (KYC, call-center fraud, document provenance), an agent queries AML to reason over what is authentic, what is suspicious, and how decisions should evolve over time.
+## Why this project
 
-## Why now
+Aubric AML is a memory-first trust layer for AI moderation/identity agents:
 
-EU AI Act Article 50 enforcement begins **Aug 2, 2026**. Deployers need detection, disclosure, and audit-ready evidence chains. AML is designed so compliance artifacts are produced by normal operation (especially the update loop with versioned branches).
+- remember **authenticity state** per user (voice/face/document/behavior),
+- keep episodic decisions for replay and drift measurement,
+- store procedural policy updates as versioned, auditable records,
+- expose everything through MCP so agents can call it as a real memory API.
 
-## Verified tooling stack and roles
+This repo is built as a hackathon-ready demo stack with a clear Track 2 story and a TiDB cross-track advantage.
 
-- **TiDB**: SQL + vectors + transactions in one system; HTAP split (TiKV row + TiFlash columnar); branch-based isolated experiments.
-- **Daytona**: fast stateful sandboxes, snapshot reuse, parallel branches for policy/model experiments.
-- **Exa**: deep research, semantic similarity discovery (`findSimilar`), and continuous monitoring (`Websets`) for adversarial OSINT.
+## What you get end-to-end
 
-## Memory architecture (four layers)
+- **SQLite/TiDB data model** for four memory layers in `schema/ddl/aml_tidb_schema.sql`
+- **Vector + SQL + policy query** pattern in code (`KILLER_QUERY_TEMPLATE`)  
+- **MCP tool host** in `src/aml/mcp_server.py`
+- **Decision/update orchestration** in `src/aml/service.py`
+- **Seeded demo fixtures** in `scripts/seed_data.py` (optional manual seed mode)
+- **4-phase incident runner** in `scripts/run_demo.py` (onboarding → attack → escalation → recovery)
+- **Tool contract** in `mcp/aml_mcp_tool_definitions.json`
+- **Ops + pitch artifacts** in `docs/runbook.md`, `docs/architecture_and_demo_script.md`, `docs/aubric_aml_end_to_end.md`
 
-1. **Short-term memory** (`active_challenges`): active authenticity challenge state.
-2. **Semantic memory** (`authentic_fingerprints`, `attack_fingerprints`): vector fingerprints for authentic baselines and known attacks.
-3. **Episodic memory** (`episodic_events`): immutable event log for every decision and eventual outcome.
-4. **Procedural memory** (`procedural_policies`): versioned decision rules and thresholds per tenant/risk tier.
+## TiDB architecture map to judges
 
-## Why authenticity state is hard
-
-Authenticity policy quality degrades under:
-
-- Natural drift (voice/face/behavior changes)
-- Adversarial drift (new generator families)
-- Distributional drift (regional/seasonal fraud economics)
-- Regulatory drift (traceability and auditability requirements)
-- Cross-modal drift (voice updated but face stale)
-- Privacy constraints (biometrics must stay protected)
-
-The core engineering problem is safe, continuous, replayable state updates at scale without touching production data paths.
-
-## Update loop (TiDB branching × Daytona)
-
-1. Detect drift from episodic HTAP analytics.
-2. Spawn isolated TiDB branch + Daytona sandbox.
-3. Apply candidate policy/model update in branch.
-4. Replay historical challenges (e.g., 90 days) and compare deltas.
-5. Run adversarial suite enriched by Exa OSINT artifacts.
-6. Promote winning branch or archive rejected branch with full audit trail.
-
-## Killer query (single statement across memory layers)
-
-```sql
-SELECT
-  c.challenge_id,
-  c.customer_id,
-  c.modality,
-  MIN(VEC_COSINE_DISTANCE(f_auth.embedding, c.current_embedding)) AS auth_distance,
-  MIN(VEC_COSINE_DISTANCE(f_atk.embedding, c.current_embedding)) AS attack_distance,
-  COUNT(CASE WHEN e.verdict='flagged' AND e.ts > NOW() - INTERVAL 90 DAY THEN 1 END) AS recent_flags,
-  AVG(CASE WHEN e.ts > NOW() - INTERVAL 30 DAY THEN e.confidence END) AS trailing_confidence,
-  p.policy_version,
-  p.threshold_auth,
-  p.threshold_attack,
-  p.escalation_rule
-FROM active_challenges c
-LEFT JOIN authentic_fingerprints f_auth
-  ON f_auth.customer_id = c.customer_id AND f_auth.modality = c.modality
-LEFT JOIN attack_fingerprints f_atk
-  ON f_atk.modality = c.modality
-LEFT JOIN episodic_events e
-  ON e.customer_id = c.customer_id
-LEFT JOIN procedural_policies p
-  ON p.tenant_id = c.tenant_id
-  AND p.risk_tier = c.risk_tier
-  AND p.is_active = TRUE
-WHERE c.challenge_id = ?
-GROUP BY c.challenge_id, c.customer_id, c.modality, p.policy_version,
-         p.threshold_auth, p.threshold_attack, p.escalation_rule;
+```mermaid
+flowchart LR
+    A[Authenticity Input] --> B[active_challenges]
+    B --> C[AML Service]
+    C --> D[authentic_fingerprints]
+    C --> E[attack_fingerprints]
+    C --> F[episodic_events]
+    C --> G[procedural_policies]
+    C --> H[Decision + reason + scores]
+    H --> I[MCP Clients / Agent]
+    H --> J[audit_events]
+    J --> K[branch_runs]
+    K --> L[branch_trial_results]
 ```
 
-## TiDB schema DDL (MVP-ready)
+### Memory layers
 
-```sql
-CREATE TABLE tenants (
-  tenant_id            VARCHAR(64) PRIMARY KEY,
-  tenant_name          VARCHAR(255) NOT NULL,
-  created_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+1. **Short-term** → `active_challenges` (per-in-flight request)
+2. **Semantic** → `authentic_fingerprints`, `attack_fingerprints` (vector memory)
+3. **Episodic** → `episodic_events` (append-only behavior)
+4. **Procedural** → `procedural_policies`, `branch_runs` (versioned policy + replay)
 
-CREATE TABLE customers (
-  customer_id          VARCHAR(64) PRIMARY KEY,
-  tenant_id            VARCHAR(64) NOT NULL,
-  risk_tier            VARCHAR(32) NOT NULL,
-  created_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_customers_tenant (tenant_id)
-);
+## Fast start (SQLite local demo)
 
-CREATE TABLE active_challenges (
-  challenge_id         VARCHAR(64) PRIMARY KEY,
-  tenant_id            VARCHAR(64) NOT NULL,
-  customer_id          VARCHAR(64) NOT NULL,
-  modality             VARCHAR(16) NOT NULL,
-  current_embedding    VECTOR(1536),
-  context_json         JSON,
-  created_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  status               VARCHAR(16) NOT NULL DEFAULT 'open',
-  INDEX idx_active_customer (customer_id),
-  INDEX idx_active_tenant_status (tenant_id, status)
-);
+### 1) Install frontend dependencies
 
-CREATE TABLE authentic_fingerprints (
-  fingerprint_id       BIGINT PRIMARY KEY AUTO_INCREMENT,
-  tenant_id            VARCHAR(64) NOT NULL,
-  customer_id          VARCHAR(64) NOT NULL,
-  modality             VARCHAR(16) NOT NULL,
-  embedding            VECTOR(1536) NOT NULL,
-  source_event_id      VARCHAR(64),
-  is_current           BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_auth_lookup (tenant_id, customer_id, modality, is_current),
-  VECTOR INDEX idx_auth_embedding ((VEC_COSINE_DISTANCE(embedding))) USING HNSW
-);
-
-CREATE TABLE attack_fingerprints (
-  attack_id            BIGINT PRIMARY KEY AUTO_INCREMENT,
-  modality             VARCHAR(16) NOT NULL,
-  generator_family     VARCHAR(128),
-  embedding            VECTOR(1536) NOT NULL,
-  source_url           VARCHAR(1024),
-  first_seen_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  VECTOR INDEX idx_attack_embedding ((VEC_COSINE_DISTANCE(embedding))) USING HNSW
-);
-
-CREATE TABLE episodic_events (
-  event_id             VARCHAR(64) PRIMARY KEY,
-  tenant_id            VARCHAR(64) NOT NULL,
-  customer_id          VARCHAR(64) NOT NULL,
-  challenge_id         VARCHAR(64),
-  modality             VARCHAR(16) NOT NULL,
-  asset_hash           VARCHAR(128) NOT NULL,
-  verdict              VARCHAR(32) NOT NULL,
-  confidence           DECIMAL(6,5),
-  explainability_json  JSON,
-  human_outcome        VARCHAR(32),
-  ground_truth         VARCHAR(32),
-  ts                   TIMESTAMP NOT NULL,
-  created_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_events_customer_ts (customer_id, ts),
-  INDEX idx_events_tenant_ts (tenant_id, ts)
-);
-
-CREATE TABLE procedural_policies (
-  policy_id            BIGINT PRIMARY KEY AUTO_INCREMENT,
-  tenant_id            VARCHAR(64) NOT NULL,
-  risk_tier            VARCHAR(32) NOT NULL,
-  policy_version       VARCHAR(64) NOT NULL,
-  threshold_auth       DECIMAL(6,5) NOT NULL,
-  threshold_attack     DECIMAL(6,5) NOT NULL,
-  escalation_rule      JSON NOT NULL,
-  is_active            BOOLEAN NOT NULL DEFAULT FALSE,
-  created_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY uniq_policy_version (tenant_id, risk_tier, policy_version),
-  INDEX idx_policy_active (tenant_id, risk_tier, is_active)
-);
+```bash
+pnpm install
+python -m pip install -r requirements.txt
 ```
 
-## MCP tool definitions (agent integration contract)
+### 2) Initialize data + run the full demo stack
 
-```json
-{
-  "name": "aml_authenticity_decide",
-  "description": "Evaluate active challenge against semantic, episodic, and procedural memory",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "challenge_id": {"type": "string"}
-    },
-    "required": ["challenge_id"]
-  }
-}
+```bash
+pnpm demo
 ```
 
-```json
-{
-  "name": "aml_log_episode",
-  "description": "Write an episodic authenticity event",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "event_id": {"type": "string"},
-      "tenant_id": {"type": "string"},
-      "customer_id": {"type": "string"},
-      "challenge_id": {"type": "string"},
-      "modality": {"type": "string"},
-      "asset_hash": {"type": "string"},
-      "verdict": {"type": "string"},
-      "confidence": {"type": "number"},
-      "ts": {"type": "string", "format": "date-time"}
-    },
-    "required": ["event_id", "tenant_id", "customer_id", "modality", "asset_hash", "verdict", "ts"]
-  }
-}
+Then open:
+
+- `http://localhost:3000` for the Next.js frontend
+- API runs on `http://127.0.0.1:9000` (used by the frontend)
+
+If you prefer to run frontend and API separately:
+
+```bash
+pnpm dev:api      # Terminal 1
+pnpm dev          # Terminal 2
 ```
 
-```json
-{
-  "name": "aml_run_update_cycle",
-  "description": "Launch drift-driven sandbox replay on branched memory and return promotion decision",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "tenant_id": {"type": "string"},
-      "window_days": {"type": "integer", "minimum": 1},
-      "drift_signal": {"type": "string"}
-    },
-    "required": ["tenant_id", "window_days", "drift_signal"]
-  }
-}
+You can also run the backend demo script directly (`scripts/run_demo.py`) if you only want to exercise the service without the UI.
+
+### MCP mode
+
+**stdio fallback (works without MCP package):**
+
+```bash
+AML_BACKEND=sqlite AML_SQLITE_PATH=./data/aml_memory.sqlite \
+echo '{"tool":"aml_authenticity_decide","input":{"tenant_id":"t-geo","challenge_id":"ch-001","channel":"profile_photo"}}' | \
+python -m src.aml.mcp_server --mode stdio
 ```
 
-## Hackathon demo flow (3 minutes)
+**MCP server mode (requires mcp package):**
 
-1. Setup: "Article 50 deadline is near; trust agents without memory fail both security and compliance."
-2. Cold case: authentic sample evaluated with explainability.
-3. Attack case: cloned sample escalated with policy trace.
-4. Live update loop: branch + sandbox + replay + Exa-fed adversarial check.
-5. Close: promoted/archived branch artifacts as compliance evidence.
+```bash
+AML_BACKEND=sqlite AML_SQLITE_PATH=./data/aml_memory.sqlite \
+python -m src.aml.mcp_server --mode mcp
+```
 
-## Scope notes / risk flags
+Register tools from: `mcp/aml_mcp_tool_definitions.json`.
 
-- TiDB vector indexing was publicly announced as beta; position production claims carefully.
-- TiDB branching and Daytona startup numbers may vary in first-run paths; pre-warm for demos.
-- Exa coverage is strongest on public web content; avoid overclaiming underground forum visibility.
+## TiDB mode
+
+Set env:
+
+```bash
+AML_BACKEND=tidb DATABASE_URL=mysql://user:password@host:4000/aubric_aml
+```
+
+Then run the same seed/demo flow against TiDB.
+
+## 3-minute demo script (end-to-end, real-world style)
+
+1. **0:00–0:30 Set the problem**  
+   EU AI Act deadline pressure + “agents forget, one false positive can break trust.”
+
+2. **0:30–1:15 Baseline case (onboarding)**  
+   `python scripts/run_demo.py` executes phase 1 as onboarding verification and should output `allow` with low auth-distance and high trust.
+
+3. **1:15–2:00 Attack + escalation case**  
+   phase 2 and 3 show `review`/`deny` as cloned/financial abuse attempts hit similarity and policy thresholds.
+
+4. **2:00–2:45 Update loop**  
+   shows replay + adversarial-sim signal via `run_update_cycle`, then recommendation and drift delta.
+
+5. **2:45–3:00 Compliance close**  
+   show exported audit bundle from `data/audit_<branch>.json`.
+
+## Strategic assumptions (explicit)
+
+If any assumption fails, the story still lands:
+
+1. **Track stackability fails** → core product remains a strong Track 2 MCP memory substrate with reproducible replay/audit.
+2. **TiDB distinctness not rewarded** → still a pragmatic agentic architecture with four memory layers and deterministic behavior.
+3. **Live Aubric endpoints unavailable** → fixtures produce realistic trajectories and stable, demonstrable flow.
+
+## Files you should reference in your pitch
+
+- `docs/architecture_and_demo_script.md` (short, presentation-ready story)
+- `docs/runbook.md` (operator commands)
+- `mcp/aml_mcp_tool_definitions.json` (agent contract)
+- `schema/ddl/aml_tidb_schema.sql` (single-query + vector + branches)

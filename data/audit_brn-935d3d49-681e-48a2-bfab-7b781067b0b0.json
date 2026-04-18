@@ -1,0 +1,42 @@
+{
+  "branch_run": {
+    "branch_run_id": "brn-935d3d49-681e-48a2-bfab-7b781067b0b0",
+    "tenant_id": "t-geo",
+    "source_branch": "main",
+    "branch_name": "aml-update-1776556330",
+    "created_by": "autobuild",
+    "drift_signal": "verified_voice_clone_false_negatives_up_2x",
+    "hypothesis": "Hypothesis derived from: verified_voice_clone_false_negatives_up_2x",
+    "status": "promoted",
+    "metrics_json": "{\"winner\": true, \"delta_fpr\": 0.0, \"delta_fnr\": 0.0, \"adversarial_passed\": true}",
+    "started_at": "2026-04-18 23:52:10",
+    "finished_at": "2026-04-18 23:52:10",
+    "promoted": 1,
+    "archived": 0,
+    "audit_package_ref": null
+  },
+  "trial": {
+    "trial_id": 1,
+    "branch_run_id": "brn-935d3d49-681e-48a2-bfab-7b781067b0b0",
+    "window_days": 90,
+    "delta_fpr": 0.0,
+    "delta_fnr": 0.0,
+    "delta_latency_ms": 10.1,
+    "replay_size": 4,
+    "adversarial_passed": 1,
+    "winner": 1,
+    "notes": "{\"old\": {\"fpr\": 0.0, \"fnr\": 0.5, \"positive_rate\": 0.25, \"support\": 4}, \"new\": {\"fpr\": 0.0, \"fnr\": 0.5, \"positive_rate\": 0.25, \"support\": 4}, \"hypothesis\": \"verified_voice_clone_false_negatives_up_2x\", \"adversarial_inputs\": true, \"exa_ready\": true}",
+    "created_at": "2026-04-18 23:52:10"
+  },
+  "audits": [
+    {
+      "audit_id": 5,
+      "tenant_id": "t-geo",
+      "branch_run_id": "brn-935d3d49-681e-48a2-bfab-7b781067b0b0",
+      "event_type": "update_cycle_completed",
+      "actor": "autobuild",
+      "payload_json": "{\"window_days\": 90, \"drift_signal\": \"verified_voice_clone_false_negatives_up_2x\", \"recommendation\": \"promote\", \"delta_fpr\": 0.0, \"delta_fnr\": 0.0}",
+      "ts": "2026-04-18 23:52:10"
+    }
+  ]
+}
