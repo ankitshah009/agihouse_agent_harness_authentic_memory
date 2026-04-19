@@ -83,6 +83,12 @@ class MemoryStore:
             database=parsed.path.lstrip("/") or "aubric_aml",
             autocommit=True,
             connection_timeout=15,
+            # Use pure-Python implementation. The C extension (_mysql_connector)
+            # has a double-free bug in its OpenSSL cleanup path on macOS that
+            # SIGTRAPs the interpreter when closing a broken TLS connection
+            # (observed during reconnect after TiDB Cloud Serverless idles us
+            # out). The pure-Python path is slightly slower but doesn't crash.
+            use_pure=True,
         )
         self._connect_tidb()
 
@@ -90,26 +96,22 @@ class MemoryStore:
         import mysql.connector
         self.conn = mysql.connector.connect(**self._tidb_params)
 
-    def _ensure_connection(self):
-        # TiDB Cloud Serverless drops idle connections. Before each query, verify
-        # the connection is healthy; if it isn't, transparently reconnect.
-        if self.backend != "tidb":
-            return
-        try:
-            self.conn.ping(reconnect=True, attempts=2, delay=1)
-        except Exception:
-            # Full reconnect as last resort (e.g. socket reset, auth expired).
-            try:
-                self.conn.close()
-            except Exception:
-                pass
-            self._connect_tidb()
-
     def execute(self, sql: str, params: Optional[tuple] = None):
-        self._ensure_connection()
         if self.backend == "tidb" and params is not None:
             # mysql-connector expects %s placeholders; existing SQL in this repo uses ?.
             sql = sql.replace("?", "%s")
+
+        if self.backend != "tidb":
+            cur = self.conn.cursor()
+            if params is not None:
+                cur.execute(sql, params)
+            else:
+                cur.execute(sql)
+            return cur
+
+        # TiDB path: try, and on ANY failure rebuild the connection and retry
+        # once. We never call ping() because it can segfault the interpreter
+        # when the socket is half-dead (see note on use_pure above).
         try:
             cur = self.conn.cursor()
             if params is not None:
@@ -118,10 +120,10 @@ class MemoryStore:
                 cur.execute(sql)
             return cur
         except Exception:
-            # One retry after reconnect — handles the rare race where ping
-            # passed but the connection dropped between ping and execute.
-            if self.backend != "tidb":
-                raise
+            try:
+                self.conn.close()
+            except Exception:
+                pass
             self._connect_tidb()
             cur = self.conn.cursor()
             if params is not None:
