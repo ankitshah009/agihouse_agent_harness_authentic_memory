@@ -381,7 +381,7 @@ def seed_demo_scenario(
         phase["ts"] = (start - timedelta(minutes=(len(scenario["phases"]) - idx) * 10)).isoformat() + "Z"
         create_open_challenge(store, tenant_id=tenant_id, phase=phase, now=start)
         phases.append(phase)
-    store.conn.commit()
+    store.commit()
     return phases
 
 

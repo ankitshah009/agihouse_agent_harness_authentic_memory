@@ -168,7 +168,7 @@ def run_seed(db_path: str):
             ),
         )
 
-    store.conn.commit()
+    store.commit()
     store.close()
 
 

@@ -1,6 +1,7 @@
 import json
 import os
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -43,6 +44,50 @@ class StoreConfig:
     db_path: Optional[str] = None
 
 
+class _ScopedCursor:
+    """Cursor that owns its connection; closing the cursor closes the conn.
+
+    Used by the TiDB path so each query has its own short-lived connection
+    (no stale TLS sessions -> no _ssl module segfaults).
+    """
+
+    __slots__ = ("_conn", "_cur", "_closed")
+
+    def __init__(self, conn, cur):
+        self._conn = conn
+        self._cur = cur
+        self._closed = False
+
+    def __getattr__(self, name):
+        return getattr(self._cur, name)
+
+    def fetchone(self):
+        return self._cur.fetchone()
+
+    def fetchall(self):
+        return self._cur.fetchall()
+
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self._cur.close()
+        except Exception:
+            pass
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+
+    def __del__(self):
+        # Best-effort cleanup if the caller forgot to close explicitly.
+        try:
+            self.close()
+        except Exception:
+            pass
+
+
 class MemoryStore:
     def __init__(self, cfg: StoreConfig):
         self.cfg = cfg
@@ -62,7 +107,15 @@ class MemoryStore:
         self._ensure_sqlite_schema()
 
     def _init_tidb(self):
-        # Optional path for connected TiDB. Keep explicit and fail fast if deps are missing.
+        # TiDB backend uses thread-local connections. Rationale:
+        # - ThreadingHTTPServer runs each request in its own thread. A single
+        #   shared mysql.connector socket is not thread-safe: concurrent reads
+        #   corrupt the TLS record state and Python's _ssl module segfaults
+        #   (observed on macOS 26, Python 3.13). Each thread needs its own conn.
+        # - Pure-Python driver (use_pure=True) avoids the C extension's
+        #   double-free on TLS teardown.
+        # - One connection per thread, reused across queries within the thread,
+        #   so we don't pay the TLS handshake on every call.
         try:
             import mysql.connector  # noqa: F401
         except Exception as exc:
@@ -83,24 +136,32 @@ class MemoryStore:
             database=parsed.path.lstrip("/") or "aubric_aml",
             autocommit=True,
             connection_timeout=15,
-            # Use pure-Python implementation. The C extension (_mysql_connector)
-            # has a double-free bug in its OpenSSL cleanup path on macOS that
-            # SIGTRAPs the interpreter when closing a broken TLS connection
-            # (observed during reconnect after TiDB Cloud Serverless idles us
-            # out). The pure-Python path is slightly slower but doesn't crash.
             use_pure=True,
         )
-        self._connect_tidb()
+        self._tidb_local = threading.local()
+        self.conn = None  # Backward-compat shim; TiDB callers never read it.
 
-    def _connect_tidb(self):
+    def _get_tidb_conn(self):
+        """Return this thread's dedicated TiDB connection, opening on first use."""
+        conn = getattr(self._tidb_local, "conn", None)
+        if conn is not None:
+            return conn
         import mysql.connector
-        self.conn = mysql.connector.connect(**self._tidb_params)
+        conn = mysql.connector.connect(**self._tidb_params)
+        self._tidb_local.conn = conn
+        return conn
+
+    def _discard_tidb_conn(self):
+        """Throw away this thread's connection (after a failure)."""
+        conn = getattr(self._tidb_local, "conn", None)
+        self._tidb_local.conn = None
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     def execute(self, sql: str, params: Optional[tuple] = None):
-        if self.backend == "tidb" and params is not None:
-            # mysql-connector expects %s placeholders; existing SQL in this repo uses ?.
-            sql = sql.replace("?", "%s")
-
         if self.backend != "tidb":
             cur = self.conn.cursor()
             if params is not None:
@@ -109,28 +170,24 @@ class MemoryStore:
                 cur.execute(sql)
             return cur
 
-        # TiDB path: try, and on ANY failure rebuild the connection and retry
-        # once. We never call ping() because it can segfault the interpreter
-        # when the socket is half-dead (see note on use_pure above).
-        try:
-            cur = self.conn.cursor()
-            if params is not None:
-                cur.execute(sql, params)
-            else:
-                cur.execute(sql)
-            return cur
-        except Exception:
+        # TiDB path: thread-local connection, retry once on failure with a
+        # fresh conn (covers idle timeouts and transient network blips).
+        sql2 = sql.replace("?", "%s") if params is not None else sql
+        last_err = None
+        for attempt in (1, 2):
             try:
-                self.conn.close()
-            except Exception:
-                pass
-            self._connect_tidb()
-            cur = self.conn.cursor()
-            if params is not None:
-                cur.execute(sql, params)
-            else:
-                cur.execute(sql)
-            return cur
+                conn = self._get_tidb_conn()
+                cur = conn.cursor()
+                if params is not None:
+                    cur.execute(sql2, params)
+                else:
+                    cur.execute(sql2)
+                return cur
+            except Exception as exc:
+                last_err = exc
+                self._discard_tidb_conn()
+                if attempt == 2:
+                    raise last_err
 
     def fetchone(self, sql: str, params: Optional[tuple] = None):
         cur = self.execute(sql, params)
@@ -577,8 +634,24 @@ class MemoryStore:
             "audits": audits,
         }
 
-    def close(self):
-        if self.conn:
+    def commit(self):
+        # TiDB uses autocommit + per-query connections: there is nothing to
+        # commit and no long-lived self.conn to call it on. SQLite needs an
+        # explicit commit to flush a write transaction.
+        if self.backend == "sqlite" and self.conn is not None:
             self.conn.commit()
+
+    def close(self):
+        # TiDB backend uses per-query connections; self.conn is always None there.
+        if self.conn is None:
+            return
+        if self.backend == "sqlite":
+            try:
+                self.conn.commit()
+            except Exception:
+                pass
+        try:
             self.conn.close()
-            self.conn = None
+        except Exception:
+            pass
+        self.conn = None
