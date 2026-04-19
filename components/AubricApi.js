@@ -37,6 +37,10 @@ const request = async (path, init = {}, timeoutMs = 12000) => {
   }
 };
 
+// Nullable unwrap: for read-only getters where callers use an `if (!x) return`
+// pattern. Discards the error string — only use when the caller doesn't need
+// the reason for failure. Mutating endpoints should return the raw result so
+// callers (via withStatus) can surface the underlying error.
 const unwrap = (res) => (res?.ok === false ? null : res);
 
 export const listScenarios = async () => unwrap(await request("/api/scenarios"));
@@ -46,30 +50,27 @@ export const getChallenges = async (opts = {}) => {
 };
 export const getCurrentChallenge = async () => unwrap(await request("/api/challenges/current"));
 export const getChallenge = async (id) => unwrap(await request(`/api/challenges/${encodeURIComponent(id)}`));
-export const runScenarioStep = async (id, opts = {}) => unwrap(await request(`/api/challenges/${encodeURIComponent(id)}/run`, {
-  method: "POST",
-  body: JSON.stringify(opts || {}),
-}));
 export const runQuery = async (id) => unwrap(await request(`/api/challenges/${encodeURIComponent(id)}/query`));
 export const getEpisodes = async (id) => unwrap(await request(`/api/challenges/${encodeURIComponent(id)}/episodes`));
-export const resetDemo = async (opts = {}) => unwrap(await request("/api/demo/reset", {
-  method: "POST",
-  body: JSON.stringify(opts || {}),
-}, 30000));
-export const runAllScenarios = async (opts = {}) => unwrap(await request("/api/demo/run-all", {
-  method: "POST",
-  body: JSON.stringify(opts || {}),
-}, 120000));
 export const getAudit = async (branchRunId) => unwrap(await request(`/api/audit/${encodeURIComponent(branchRunId)}`));
-
-export const prewarm = async () => unwrap(await request("/api/demo/prewarm", { method: "POST" }, 30000));
-
 export const getDaytonaStatus = async () => unwrap(await request("/api/daytona/status"));
 
-export const runDaytonaCode = async (code, opts = {}) =>
-  unwrap(
-    await request("/api/daytona/run", {
-      method: "POST",
-      body: JSON.stringify({ code, ...(opts.timeout ? { timeout: opts.timeout } : {}) }),
-    }, 60000),
-  );
+// Mutating endpoints return the raw {ok, error?, ...payload} so withStatus can
+// surface the underlying error (HTTP status, timeout, connection refused).
+export const runScenarioStep = async (id, opts = {}) => await request(`/api/challenges/${encodeURIComponent(id)}/run`, {
+  method: "POST",
+  body: JSON.stringify(opts || {}),
+});
+export const resetDemo = async (opts = {}) => await request("/api/demo/reset", {
+  method: "POST",
+  body: JSON.stringify(opts || {}),
+}, 30000);
+export const runAllScenarios = async (opts = {}) => await request("/api/demo/run-all", {
+  method: "POST",
+  body: JSON.stringify(opts || {}),
+}, 120000);
+export const prewarm = async () => await request("/api/demo/prewarm", { method: "POST" }, 30000);
+export const runDaytonaCode = async (code, opts = {}) => await request("/api/daytona/run", {
+  method: "POST",
+  body: JSON.stringify({ code, ...(opts.timeout ? { timeout: opts.timeout } : {}) }),
+}, 60000);
