@@ -19,10 +19,10 @@ importers:
         version: 19.2.5(react@19.2.5)
     devDependencies:
       concurrently:
-        specifier: ^9.1.2
+        specifier: ^9.2.1
         version: 9.2.1
       eslint:
-        specifier: ^9.39.2
+        specifier: ^9.39.4
         version: 9.39.4
       eslint-config-next:
         specifier: ^16.2.4

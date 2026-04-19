@@ -255,6 +255,7 @@ const ScenarioConsole = () => {
 
   useEffect(() => {
     refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only bootstrap
   }, []);
 
   useEffect(() => {
@@ -262,6 +263,7 @@ const ScenarioConsole = () => {
     const candidate = allChallenges.find((c) => c.challenge_id === selectedChallengeId);
     if (!candidate) return;
     refreshChallengeView(candidate.challenge_id, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync view to selected challenge id
   }, [selectedChallengeId]);
 
   useEffect(() => {
@@ -272,6 +274,7 @@ const ScenarioConsole = () => {
     if (!nextFromPlan) return;
     const next = allChallenges.find((c) => c.challenge_id === nextFromPlan.challenge_id && c.status === "open");
     if (next && !selectedChallengeId) setSelectedChallengeId(next.challenge_id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- scenario plan drives default selection
   }, [allChallenges, selectedScenario]);
 
   return (

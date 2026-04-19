@@ -9,11 +9,12 @@
     "demo": "pnpm dev:all",
     "build": "next build",
     "start": "next start -p 3000",
-    "lint": "next lint"
+    "lint": "eslint .",
+    "audit": "pnpm audit"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2",
-    "eslint": "^9.39.2",
+    "concurrently": "^9.2.1",
+    "eslint": "^9.39.4",
     "eslint-config-next": "^16.2.4"
   },
   "dependencies": {
