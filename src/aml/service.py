@@ -261,7 +261,7 @@ class AMLService:
             explainability_json=event.get("explainability_json"),
             human_outcome=event.get("human_outcome"),
             ground_truth=event.get("ground_truth"),
-            ts=event.get("ts", datetime.utcnow().isoformat()),
+            ts=event.get("ts") or datetime.utcnow().isoformat(),
             branch_run_id=event.get("branch_run_id"),
             auth_distance=event.get("auth_distance"),
             attack_distance=event.get("attack_distance"),

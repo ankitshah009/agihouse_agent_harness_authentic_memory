@@ -16,8 +16,10 @@ help:
 	@echo "  make rehearse     Full dress rehearsal: install -> build -> test -> demo"
 	@echo "  make clean        Remove caches, sqlite files, and audit bundles"
 
+PYTHON ?= $(shell [ -f venv/bin/python ] && echo venv/bin/python || echo python3)
+
 install:
-	pnpm install && pip install -r requirements.txt
+	pnpm install && $(PYTHON) -m pip install -r requirements.txt
 
 demo:
 	pnpm demo
@@ -27,10 +29,10 @@ demo-tidb:
 	AML_BACKEND=tidb pnpm demo
 
 seed:
-	python scripts/run_demo.py
+	$(PYTHON) scripts/run_demo.py
 
 test:
-	pytest tests/ -v
+	$(PYTHON) -m pytest tests/ -v
 
 build:
 	pnpm run build

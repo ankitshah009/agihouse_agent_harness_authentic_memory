@@ -94,6 +94,8 @@ CREATE TABLE IF NOT EXISTS episodic_events (
   explainability_json JSON,
   human_outcome      VARCHAR(32),
   ground_truth       VARCHAR(32),
+  auth_distance      DECIMAL(10,6),
+  attack_distance    DECIMAL(10,6),
   ts                 TIMESTAMP NOT NULL,
   created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_events_customer_ts (tenant_id, customer_id, ts),

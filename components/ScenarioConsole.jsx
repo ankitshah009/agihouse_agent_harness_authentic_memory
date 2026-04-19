@@ -95,7 +95,6 @@ const ScenarioConsole = () => {
   const [exaStatus, setExaStatus] = useState(null);
   const [isBusy, setIsBusy] = useState(false);
   const [warming, setWarming] = useState(false);
-  const [showDeprecationBanner, setShowDeprecationBanner] = useState(false);
   const [message, setMessage] = useState("Ready.");
   const [error, setError] = useState("");
 
@@ -357,19 +356,17 @@ const ScenarioConsole = () => {
 
   useEffect(() => {
     refresh();
-    if (typeof window !== "undefined" && window.location && window.location.port === "3000") {
-      setShowDeprecationBanner(true);
-    }
     let timer;
     setWarming(true);
     (async () => {
       try {
         const resp = await prewarm();
         if (resp && resp.backend && !backend) setBackend(resp.backend);
+        setWarming("done");
       } catch {
-        // swallow — prewarm is best-effort
+        setWarming(false);
       } finally {
-        timer = setTimeout(() => setWarming(false), 2500);
+        timer = setTimeout(() => setWarming(false), 2000);
       }
     })();
     return () => {
@@ -413,29 +410,6 @@ const ScenarioConsole = () => {
 
   return (
     <section style={{ minHeight: "100vh", background: "var(--paper-3)", padding: "24px 28px 64px" }}>
-      {showDeprecationBanner ? (
-        <div
-          style={{
-            marginBottom: 14,
-            padding: "10px 14px",
-            borderRadius: 10,
-            background: "rgba(245,158,11,0.08)",
-            border: "1px solid rgba(245,158,11,0.35)",
-            color: "#fcd34d",
-            fontSize: "12px",
-            fontFamily: "var(--font-mono)",
-            display: "flex",
-            gap: 10,
-            alignItems: "center",
-          }}
-        >
-          <span style={{ fontSize: "14px" }}>⚠️</span>
-          <span>
-            Demo UI lives on port 3000 (this page). The legacy static UI at :9000 is deprecated.
-          </span>
-        </div>
-      ) : null}
-
       <div
         style={{
           marginBottom: 18,
@@ -462,27 +436,9 @@ const ScenarioConsole = () => {
         {exaPill}
         <div style={{ flex: 1 }} />
         {warming ? (
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              fontSize: "11px",
-              color: "var(--text-tertiary)",
-              fontFamily: "var(--font-mono)",
-            }}
-          >
-            <span
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: "50%",
-                background: "#4facfe",
-                boxShadow: "0 0 10px #4facfe",
-                animation: "pulse 1.2s ease-in-out infinite",
-              }}
-            />
-            warming…
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: "11px", fontFamily: "var(--font-mono)", color: warming === "done" ? "#10b981" : "var(--text-tertiary)" }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: warming === "done" ? "#10b981" : "#4facfe", boxShadow: `0 0 10px ${warming === "done" ? "#10b981" : "#4facfe"}`, animation: warming === "done" ? "none" : "pulse 1.2s ease-in-out infinite" }} />
+            {warming === "done" ? "Ready ✓" : "warming…"}
           </span>
         ) : null}
       </div>
@@ -531,7 +487,12 @@ const ScenarioConsole = () => {
                   Seed scenario
                 </button>
                 <button className="btn" onClick={handleRunAll} disabled={isBusy}>
-                  Run all phases
+                  {isBusy ? (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: "currentColor", animation: "pulse 1s ease-in-out infinite" }} />
+                      Running…
+                    </span>
+                  ) : "Run all phases"}
                 </button>
                 <button className="btn" onClick={() => refresh({ silent: true })} disabled={isBusy}>
                   Refresh
@@ -571,6 +532,17 @@ const ScenarioConsole = () => {
               <Rule dotted />
 
               <div>
+                <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(102,126,234,0.08)", border: "1px solid rgba(102,126,234,0.25)", borderRadius: 10 }}>
+                  <div style={{ fontSize: "var(--text-xs)", color: "#a5b4fc", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 700, marginBottom: 4 }}>
+                    Active incident
+                  </div>
+                  <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-primary)" }}>
+                    {scenario?.incident_id ? `INC-${scenario.incident_id}` : "INC-4431"} · {scenario?.name || "Dating Platform Takeover"}
+                  </div>
+                  <div style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)", marginTop: 3 }}>
+                    {scenarioPhases.length > 0 ? scenarioPhases.map(p => p.phase || p.label).join(" → ") : "Onboarding → Attack → Escalation → Recovery"}
+                  </div>
+                </div>
                 <label className="eyebrow">Phase controls</label>
                 <div style={{ marginTop: 8 }}>
                   <div style={{ color: "var(--ink-3)", fontSize: "var(--t-3)" }}>
@@ -596,9 +568,11 @@ const ScenarioConsole = () => {
                             }}
                           >
                             <div>
-                              <div style={{ fontFamily: "var(--serif)", fontSize: "var(--t-3)" }}>{phase.label}</div>
-                              <div className="eyebrow" style={{ marginTop: 2 }}>
-                                {phase.phase} · {phase.challenge_id} · {phase.notes}
+                              <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.3 }}>
+                                {phase.notes || phase.label}
+                              </div>
+                              <div className="eyebrow" style={{ marginTop: 3, color: "var(--text-tertiary)" }}>
+                                {phase.phase} · {phase.challenge_id}
                               </div>
                             </div>
                             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
