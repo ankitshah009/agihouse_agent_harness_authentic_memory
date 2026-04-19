@@ -1,11 +1,39 @@
 import json
 import os
 import sqlite3
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 from .vector import json_dump_vector
+
+
+KILLER_QUERY_TEMPLATE = """
+SELECT
+  c.challenge_id,
+  c.customer_id,
+  c.modality,
+  MIN(VEC_COSINE_DISTANCE(f_auth.embedding, c.current_embedding)) AS auth_distance,
+  MIN(VEC_COSINE_DISTANCE(f_atk.embedding, c.current_embedding)) AS attack_distance,
+  COUNT(CASE WHEN e.verdict='flagged' AND e.ts > NOW() - INTERVAL 90 DAY THEN 1 END) AS recent_flags,
+  AVG(CASE WHEN e.ts > NOW() - INTERVAL 30 DAY THEN e.confidence ELSE NULL END) AS trailing_confidence,
+  p.policy_version,
+  p.threshold_auth,
+  p.threshold_attack,
+  p.escalation_rule
+FROM active_challenges c
+LEFT JOIN authentic_fingerprints f_auth
+  ON f_auth.customer_id = c.customer_id AND f_auth.modality = c.modality AND f_auth.is_current = 1
+LEFT JOIN attack_fingerprints f_atk
+  ON f_atk.modality = c.modality
+LEFT JOIN episodic_events e
+  ON e.customer_id = c.customer_id
+LEFT JOIN procedural_policies p
+  ON p.tenant_id = c.tenant_id AND p.risk_tier = c.risk_tier AND p.is_active = TRUE
+WHERE c.challenge_id = ?
+GROUP BY c.challenge_id, c.customer_id, c.modality, p.policy_version, p.threshold_auth, p.threshold_attack, p.escalation_rule;
+"""
 
 
 @dataclass
@@ -466,6 +494,44 @@ class MemoryStore:
             "INSERT INTO audit_events (tenant_id, branch_run_id, event_type, actor, payload_json) VALUES (?, ?, ?, ?, ?)",
             (tenant_id, branch_run_id, event_type, actor, json.dumps(payload)),
         )
+
+    def execute_killer_query(self, challenge_id: str, tenant_id: str) -> Dict[str, Any]:
+        """Run the authenticity killer SQL directly on TiDB.
+
+        On SQLite, returns executed=False so the service layer can fall back
+        to the Python cosine-distance path (SQLite lacks VEC_COSINE_DISTANCE).
+        """
+        if self.backend != "tidb":
+            return {"row": None, "elapsed_ms": 0.0, "executed": False}
+
+        start = time.time()
+        row = self.fetchone(KILLER_QUERY_TEMPLATE, (challenge_id,))
+        elapsed_ms = round((time.time() - start) * 1000, 3)
+
+        if not row:
+            return {"row": None, "elapsed_ms": elapsed_ms, "executed": True}
+
+        escalation_rule = self._coerce_json(row.get("escalation_rule"))
+        shaped = {
+            "challenge_id": row.get("challenge_id"),
+            "customer_id": row.get("customer_id"),
+            "modality": row.get("modality"),
+            "auth_distance": float(row["auth_distance"]) if row.get("auth_distance") is not None else 1.0,
+            "attack_distance": float(row["attack_distance"]) if row.get("attack_distance") is not None else 1.0,
+            "recent_flags": int(row.get("recent_flags") or 0),
+            "trailing_confidence": (
+                float(row["trailing_confidence"]) if row.get("trailing_confidence") is not None else None
+            ),
+            "policy_version": row.get("policy_version"),
+            "threshold_auth": (
+                float(row["threshold_auth"]) if row.get("threshold_auth") is not None else None
+            ),
+            "threshold_attack": (
+                float(row["threshold_attack"]) if row.get("threshold_attack") is not None else None
+            ),
+            "escalation_rule": escalation_rule,
+        }
+        return {"row": shaped, "elapsed_ms": elapsed_ms, "executed": True}
 
     def get_branch_bundle(self, branch_run_id: str):
         run = self.fetchone("SELECT * FROM branch_runs WHERE branch_run_id=?", (branch_run_id,))

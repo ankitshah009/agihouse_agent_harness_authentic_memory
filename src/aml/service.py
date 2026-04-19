@@ -3,37 +3,12 @@ import os
 import time
 import uuid
 from datetime import datetime
-from typing import Any, Dict, Optional
+from decimal import Decimal
+from typing import Any, Dict, List, Optional
 
+from . import daytona_runner, exa_intel
+from .db import KILLER_QUERY_TEMPLATE, MemoryStore
 from .vector import min_cosine_distance, safe_float, to_float_list
-from .db import MemoryStore
-
-
-KILLER_QUERY_TEMPLATE = """
-SELECT
-  c.challenge_id,
-  c.customer_id,
-  c.modality,
-  MIN(VEC_COSINE_DISTANCE(f_auth.embedding, c.current_embedding)) AS auth_distance,
-  MIN(VEC_COSINE_DISTANCE(f_atk.embedding, c.current_embedding)) AS attack_distance,
-  COUNT(CASE WHEN e.verdict='flagged' AND e.ts > NOW() - INTERVAL 90 DAY THEN 1 END) AS recent_flags,
-  AVG(CASE WHEN e.ts > NOW() - INTERVAL 30 DAY THEN e.confidence ELSE NULL END) AS trailing_confidence,
-  p.policy_version,
-  p.threshold_auth,
-  p.threshold_attack,
-  p.escalation_rule
-FROM active_challenges c
-LEFT JOIN authentic_fingerprints f_auth
-  ON f_auth.customer_id = c.customer_id AND f_auth.modality = c.modality AND f_auth.is_current = 1
-LEFT JOIN attack_fingerprints f_atk
-  ON f_atk.modality = c.modality
-LEFT JOIN episodic_events e
-  ON e.customer_id = c.customer_id
-LEFT JOIN procedural_policies p
-  ON p.tenant_id = c.tenant_id AND p.risk_tier = c.risk_tier AND p.is_active = TRUE
-WHERE c.challenge_id = ?
-GROUP BY c.challenge_id, c.customer_id, c.modality, p.policy_version, p.threshold_auth, p.threshold_attack, p.escalation_rule;
-"""
 
 
 class AMLService:
@@ -66,21 +41,40 @@ class AMLService:
 
         customer_id = challenge["customer_id"]
         modality = challenge["modality"]
-        challenge_embedding = self._load_vector(challenge["current_embedding"])
 
-        auth_rows = self.store.list_authentic_fingerprints(tenant_id, customer_id, modality)
-        atk_rows = self.store.list_attack_fingerprints(tenant_id, modality)
+        killer = self.store.execute_killer_query(challenge_id, tenant_id)
+        sql_executed = bool(killer.get("executed"))
+        sql_elapsed_ms = float(killer.get("elapsed_ms") or 0.0)
+        killer_row = killer.get("row") if sql_executed else None
 
-        auth_distance = self._min_distance(auth_rows, challenge_embedding, source="embedding")
-        attack_distance = self._min_distance(atk_rows, challenge_embedding, source="embedding")
+        trailing_conf: Optional[float] = None
 
-        events = self.store.list_recent_events(tenant_id, customer_id)
-        recent_flags = sum(
-            1
-            for e in events
-            if e.get("verdict") in ("fraud", "deny", "review") and self._days_old(e["ts"]) <= 90
-        )
-        trailing_conf = self._trailing_confidence(events)
+        if killer_row:
+            auth_distance = float(killer_row.get("auth_distance", 1.0))
+            attack_distance = float(killer_row.get("attack_distance", 1.0))
+            recent_flags = int(killer_row.get("recent_flags") or 0)
+            trailing_conf = killer_row.get("trailing_confidence")
+            if killer_row.get("policy_version"):
+                policy_version = killer_row["policy_version"]
+            if killer_row.get("threshold_auth") is not None:
+                threshold_auth = float(killer_row["threshold_auth"])
+            if killer_row.get("threshold_attack") is not None:
+                threshold_attack = float(killer_row["threshold_attack"])
+        else:
+            challenge_embedding = self._load_vector(challenge["current_embedding"])
+            auth_rows = self.store.list_authentic_fingerprints(tenant_id, customer_id, modality)
+            atk_rows = self.store.list_attack_fingerprints(tenant_id, modality)
+
+            auth_distance = self._min_distance(auth_rows, challenge_embedding, source="embedding")
+            attack_distance = self._min_distance(atk_rows, challenge_embedding, source="embedding")
+
+            events = self.store.list_recent_events(tenant_id, customer_id)
+            recent_flags = sum(
+                1
+                for e in events
+                if e.get("verdict") in ("fraud", "deny", "review") and self._days_old(e["ts"]) <= 90
+            )
+            trailing_conf = self._trailing_confidence(events)
 
         decision = self._apply_policy(
             auth_distance=auth_distance,
@@ -112,6 +106,8 @@ class AMLService:
                 "auth_distance": auth_distance,
                 "attack_distance": attack_distance,
                 "recent_flags": recent_flags,
+                "sql_executed": sql_executed,
+                "sql_elapsed_ms": sql_elapsed_ms,
             },
         )
 
@@ -133,6 +129,9 @@ class AMLService:
             "query_ms": elapsed_ms,
             "query_template": KILLER_QUERY_TEMPLATE.strip(),
             "policy_sql_ref": None,
+            "backend": self.store.backend,
+            "sql_executed": sql_executed,
+            "sql_elapsed_ms": sql_elapsed_ms,
         }
 
     def query_layer(self, tenant_id: str, challenge_id: str):
@@ -145,20 +144,39 @@ class AMLService:
         threshold_auth = float(policy["threshold_auth"])
         threshold_attack = float(policy["threshold_attack"])
 
-        challenge_embedding = self._load_vector(challenge["current_embedding"])
-        auth_rows = self.store.list_authentic_fingerprints(tenant_id, challenge["customer_id"], challenge["modality"])
-        atk_rows = self.store.list_attack_fingerprints(tenant_id, challenge["modality"])
+        killer = self.store.execute_killer_query(challenge_id, tenant_id)
+        sql_executed = bool(killer.get("executed"))
+        sql_elapsed_ms = float(killer.get("elapsed_ms") or 0.0)
+        killer_row = killer.get("row") if sql_executed else None
 
-        auth_distance = self._min_distance(auth_rows, challenge_embedding, source="embedding")
-        attack_distance = self._min_distance(atk_rows, challenge_embedding, source="embedding")
+        trailing_conf: Optional[float] = None
 
-        events = self.store.list_recent_events(tenant_id, challenge["customer_id"], days=90)
-        recent_flags = sum(
-            1
-            for e in events
-            if e.get("verdict") in ("fraud", "deny", "review", "escalate") and self._days_old(e["ts"]) <= 90
-        )
-        trailing_conf = self._trailing_confidence(events)
+        if killer_row:
+            auth_distance = float(killer_row.get("auth_distance", 1.0))
+            attack_distance = float(killer_row.get("attack_distance", 1.0))
+            recent_flags = int(killer_row.get("recent_flags") or 0)
+            trailing_conf = killer_row.get("trailing_confidence")
+            if killer_row.get("policy_version"):
+                policy_version = killer_row["policy_version"]
+            if killer_row.get("threshold_auth") is not None:
+                threshold_auth = float(killer_row["threshold_auth"])
+            if killer_row.get("threshold_attack") is not None:
+                threshold_attack = float(killer_row["threshold_attack"])
+        else:
+            challenge_embedding = self._load_vector(challenge["current_embedding"])
+            auth_rows = self.store.list_authentic_fingerprints(tenant_id, challenge["customer_id"], challenge["modality"])
+            atk_rows = self.store.list_attack_fingerprints(tenant_id, challenge["modality"])
+
+            auth_distance = self._min_distance(auth_rows, challenge_embedding, source="embedding")
+            attack_distance = self._min_distance(atk_rows, challenge_embedding, source="embedding")
+
+            events = self.store.list_recent_events(tenant_id, challenge["customer_id"], days=90)
+            recent_flags = sum(
+                1
+                for e in events
+                if e.get("verdict") in ("fraud", "deny", "review", "escalate") and self._days_old(e["ts"]) <= 90
+            )
+            trailing_conf = self._trailing_confidence(events)
 
         decision = self._apply_policy(
             auth_distance=auth_distance,
@@ -200,6 +218,9 @@ class AMLService:
             "decision": decision,
             "reason": reason,
             "query_template": KILLER_QUERY_TEMPLATE.strip(),
+            "backend": self.store.backend,
+            "sql_executed": sql_executed,
+            "sql_elapsed_ms": sql_elapsed_ms,
         }
 
     def upsert_authentic_fingerprint(
@@ -289,14 +310,54 @@ class AMLService:
             cand["threshold_attack"] = max(cand["threshold_attack"] - 0.05, 0.05)
 
         events = self.store.list_recent_events(tenant_id=tenant_id, days=window_days)
-        old = self._simulate_series(events, active_policy)
-        new = self._simulate_series(events, cand)
+
+        serialized_events = self._serialize_events_for_replay(events)
+        sandbox_out = daytona_runner.run_replay_in_sandbox(
+            {
+                "events": serialized_events,
+                "active_policy": {
+                    "threshold_auth": float(active_policy["threshold_auth"]),
+                    "threshold_attack": float(active_policy["threshold_attack"]),
+                },
+                "candidate_policy": {
+                    "threshold_auth": float(cand["threshold_auth"]),
+                    "threshold_attack": float(cand["threshold_attack"]),
+                },
+            }
+        )
+
+        sandbox_used = bool(sandbox_out.get("sandbox_used"))
+        sandbox_elapsed_ms = int(sandbox_out.get("elapsed_ms") or 0)
+        fallback_reason: Optional[str] = None
+
+        if sandbox_out.get("ok") and sandbox_out.get("metrics"):
+            metrics = sandbox_out["metrics"]
+            old = metrics.get("old") or self._simulate_series(events, active_policy)
+            new = metrics.get("new") or self._simulate_series(events, cand)
+            executed_in = "daytona_sandbox"
+        else:
+            fallback_reason = sandbox_out.get("fallback_reason") or sandbox_out.get("error") or "sandbox_unavailable"
+            old = self._simulate_series(events, active_policy)
+            new = self._simulate_series(events, cand)
+            executed_in = "local_python"
 
         delta_fpr = self._delta_rate(old["fpr"], new["fpr"])
         delta_fnr = self._delta_rate(old["fnr"], new["fnr"])
         replay_size = old["n"]
-        adversarial_passed = len(events) > 0 and run_on_exa_intel
         latency_ms = self._estimate_latency_ms(replay_size)
+
+        exa_result = {"ok": False, "configured": exa_intel.is_configured(), "query": None, "hits": []}
+        if run_on_exa_intel:
+            exa_result = exa_intel.surface_attack_intel(drift_signal, modality="voice")
+
+        exa_configured = bool(exa_result.get("configured"))
+        exa_hits = exa_result.get("hits") or []
+
+        adversarial_passed = (
+            len(events) > 0
+            and ((delta_fpr <= 0 and delta_fnr <= 0))
+            and (len(exa_hits) > 0 or not exa_configured)
+        )
 
         winner = delta_fpr <= 0 and delta_fnr <= 0
 
@@ -325,8 +386,32 @@ class AMLService:
                 "hypothesis": drift_signal,
                 "adversarial_inputs": run_on_exa_intel,
                 "exa_ready": True,
+                "executed_in": executed_in,
+                "sandbox_used": sandbox_used,
+                "sandbox_elapsed_ms": sandbox_elapsed_ms,
+                "fallback_reason": fallback_reason,
+                "exa_hits": exa_hits,
+                "exa_query": exa_result.get("query"),
+                "exa_configured": exa_configured,
             },
         )
+
+        if run_on_exa_intel:
+            top_hit = exa_hits[0] if exa_hits else None
+            self.store.log_audit_event(
+                tenant_id=tenant_id,
+                branch_run_id=branch_run_id,
+                event_type="exa_intel_fetched",
+                actor="autobuild",
+                payload={
+                    "configured": exa_configured,
+                    "query": exa_result.get("query"),
+                    "hit_count": len(exa_hits),
+                    "top_hit_url": (top_hit or {}).get("url"),
+                    "top_hit_title": (top_hit or {}).get("title"),
+                    "error": exa_result.get("error"),
+                },
+            )
 
         if winner:
             recommendation = "promote"
@@ -382,6 +467,16 @@ class AMLService:
             "adversarial_passed": adversarial_passed,
             "recommendation": recommendation,
             "artifact_uri": artifact_uri,
+            "executed_in": executed_in,
+            "sandbox_used": sandbox_used,
+            "sandbox_elapsed_ms": sandbox_elapsed_ms,
+            "fallback_reason": fallback_reason,
+            "backend": self.store.backend,
+            "exa": {
+                "configured": exa_configured,
+                "hits": exa_hits,
+                "query": exa_result.get("query"),
+            },
         }
 
     def audit_bundle(self, tenant_id: str, branch_run_id: str, fmt: str = "json"):
@@ -459,6 +554,30 @@ class AMLService:
             return [safe_float(x) for x in raw]
         return to_float_list(raw)
 
+    def _serialize_events_for_replay(self, events) -> List[Dict[str, Any]]:
+        """Reduce each event to a JSON-safe record the sandbox replay needs."""
+        out: List[Dict[str, Any]] = []
+        for event in events or []:
+            ground_truth = event.get("ground_truth")
+            auth_distance = event.get("auth_distance")
+            attack_distance = event.get("attack_distance")
+            if isinstance(auth_distance, Decimal):
+                auth_distance = float(auth_distance)
+            if isinstance(attack_distance, Decimal):
+                attack_distance = float(attack_distance)
+            ts_value = event.get("ts")
+            if isinstance(ts_value, datetime):
+                ts_value = ts_value.isoformat()
+            out.append(
+                {
+                    "ground_truth": ground_truth,
+                    "auth_distance": None if auth_distance is None else float(auth_distance),
+                    "attack_distance": None if attack_distance is None else float(attack_distance),
+                    "ts": ts_value,
+                }
+            )
+        return out
+
     def _simulate_series(self, events, policy):
         threshold_auth = float(policy["threshold_auth"])
         threshold_attack = float(policy["threshold_attack"])
@@ -497,6 +616,19 @@ class AMLService:
             "fnr": fnr,
             "positive_rate": positive_rate,
         }
+
+    def _serialize_events_for_replay(self, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Return a stdlib-serialisable subset of event rows suitable for replay_job.py."""
+        out = []
+        for e in events:
+            out.append(
+                {
+                    "ground_truth": e.get("ground_truth") or "unknown",
+                    "auth_distance": float(e["auth_distance"]) if e.get("auth_distance") is not None else 1.0,
+                    "attack_distance": float(e["attack_distance"]) if e.get("attack_distance") is not None else 1.0,
+                }
+            )
+        return out
 
     def _delta_rate(self, old: float, new: float):
         return round(new - old, 6)

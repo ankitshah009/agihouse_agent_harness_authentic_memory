@@ -68,5 +68,13 @@ window.AML_API = (() => {
       body: JSON.stringify(opts || {}),
     })),
     getAudit: async (branchRunId) => unwrap(await api(`/api/audit/${encodeURIComponent(branchRunId)}`)),
+    getDaytonaStatus: async () => unwrap(await api("/api/daytona/status")),
+    runDaytonaCode: async (code, opts = {}) =>
+      unwrap(
+        await api("/api/daytona/run", {
+          method: "POST",
+          body: JSON.stringify({ code, ...(opts.timeout ? { timeout: opts.timeout } : {}) }),
+        }),
+      ),
   };
 })();

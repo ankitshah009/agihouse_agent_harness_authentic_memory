@@ -13,12 +13,15 @@ import json
 import os
 import signal
 import sys
+import time
 from functools import partial
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 from typing import Any, Dict, Optional
 
+from src.aml import daytona_runner
 from src.aml.db import MemoryStore, StoreConfig
+from src.aml.daytona_runner import run_python_in_sandbox, status_payload, DEFAULT_HELLO_CODE
 from src.aml.service import AMLService
 from scripts import demo_scenarios
 
@@ -158,7 +161,15 @@ class DemoService:
         tenant = tenant_id or self.tenant_id
         return self.svc.query_layer(tenant, challenge_id)
 
-    def run_all(self, tenant_id: Optional[str], scenario_id: str = "dating_takeover", run_update_cycle: bool = True, window_days: int = 90, reset: bool = False):
+    def run_all(
+        self,
+        tenant_id: Optional[str],
+        scenario_id: str = "dating_takeover",
+        run_update_cycle: bool = True,
+        window_days: int = 90,
+        reset: bool = False,
+        daytona_smoke: bool = False,
+    ):
         tenant = tenant_id or self.tenant_id
         if reset:
             self.seed_demo(scenario_id=scenario_id, tenant_id=tenant)
@@ -207,7 +218,43 @@ class DemoService:
             summary["update_cycle"] = cycle
             summary["audit"] = audit
 
+        if daytona_smoke:
+            summary["daytona"] = run_python_in_sandbox(DEFAULT_HELLO_CODE)
+
         return summary
+
+    def prewarm(self):
+        start = time.time()
+        backend = getattr(self.store, "backend", "sqlite")
+        tidb_warm = False
+        daytona_warm = False
+        daytona_configured = daytona_runner.is_configured()
+        errors = {}
+
+        if backend == "tidb":
+            try:
+                row = self.store.fetchone("SELECT 1 AS ok")
+                tidb_warm = bool(row)
+            except Exception as exc:
+                errors["tidb"] = str(exc)
+
+        if daytona_configured:
+            try:
+                out = daytona_runner.run_python_in_sandbox("print('warm')", timeout=20)
+                daytona_warm = bool(out.get("ok"))
+                if not daytona_warm:
+                    errors["daytona"] = out.get("error") or str(out.get("exit_code"))
+            except Exception as exc:
+                errors["daytona"] = str(exc)
+
+        return {
+            "backend": backend,
+            "tidb_warm": tidb_warm,
+            "daytona_warm": daytona_warm,
+            "daytona_configured": daytona_configured,
+            "elapsed_ms": int(round((time.time() - start) * 1000)),
+            "errors": errors or None,
+        }
 
     def audit(self, tenant_id: Optional[str], branch_run_id: str):
         tenant = tenant_id or self.tenant_id
@@ -280,6 +327,24 @@ class DemoHandler(SimpleHTTPRequestHandler):
         segments = [s for s in path.strip("/").split("/") if s]
 
         try:
+            if method == "GET" and path == "/api/daytona/status":
+                st = status_payload()
+                return self._ok({"tenant_id": tenant_id, "daytona": st})
+
+            if method == "POST" and path == "/api/daytona/run":
+                body = self._read_json()
+                code = (body.get("code") or "").strip()
+                if not code:
+                    return self._error("Missing JSON body field: code", status=400)
+                timeout = body.get("timeout")
+                timeout_val = None
+                if timeout is not None:
+                    tout = _parse_int(timeout, 0)
+                    if tout > 0:
+                        timeout_val = tout
+                out = run_python_in_sandbox(code, timeout=timeout_val)
+                return self._ok({"daytona_run": out})
+
             if method == "GET" and path == "/api/scenarios":
                 return self._ok(self.service.list_scenarios())
 
@@ -335,6 +400,20 @@ class DemoHandler(SimpleHTTPRequestHandler):
                     )
                     return self._ok({"tenant_id": tenant_id, "challenge_id": resolved, "episodes": rows})
 
+            if method == "POST" and path == "/api/demo/prewarm":
+                try:
+                    summary = self.service.prewarm()
+                except Exception as exc:
+                    summary = {
+                        "backend": getattr(self.service.store, "backend", "sqlite"),
+                        "tidb_warm": False,
+                        "daytona_warm": False,
+                        "daytona_configured": False,
+                        "elapsed_ms": 0,
+                        "errors": {"prewarm": str(exc)},
+                    }
+                return self._ok(summary)
+
             if method == "POST" and path == "/api/demo/reset":
                 body = self._read_json()
                 scenario_id = body.get("scenario_id", "dating_takeover")
@@ -350,12 +429,14 @@ class DemoHandler(SimpleHTTPRequestHandler):
                 include_update = bool(body.get("run_update_cycle", True))
                 window_days = _parse_int(body.get("window_days", 90), 90)
                 reset = bool(body.get("reset", False))
+                daytona_smoke = bool(body.get("daytona_smoke", False))
                 summary = self.service.run_all(
                     tenant_id=tenant,
                     scenario_id=scenario_id,
                     run_update_cycle=include_update,
                     window_days=window_days,
                     reset=reset,
+                    daytona_smoke=daytona_smoke,
                 )
                 return self._ok(summary)
 

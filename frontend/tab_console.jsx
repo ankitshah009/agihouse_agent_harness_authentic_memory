@@ -20,6 +20,8 @@ const ConsoleTab = () => {
   const [lastStep, setLastStep] = useState(null);
   const [auditBundle, setAuditBundle] = useState(null);
   const [runUpdateLoop, setRunUpdateLoop] = useState(true);
+  const [runDaytonaSmoke, setRunDaytonaSmoke] = useState(false);
+  const [daytonaStatus, setDaytonaStatus] = useState(null);
   const [isBusy, setIsBusy] = useState(false);
   const [message, setMessage] = useState("Ready.");
   const [error, setError] = useState("");
@@ -63,6 +65,9 @@ const ConsoleTab = () => {
       if (!tenantId) {
         setTenantId(currentPayload?.tenant_id || allPayload.tenant_id || scenariosPayload.tenant_id || "");
       }
+
+      const dSt = await AML_API.getDaytonaStatus();
+      if (dSt?.daytona) setDaytonaStatus(dSt.daytona);
 
       if (opts.keepCurrent) {
         await refreshChallengeView(
@@ -156,11 +161,14 @@ const ConsoleTab = () => {
           run_update_cycle: runUpdateLoop,
           window_days: 90,
           reset: openChallenges.length === 0,
+          daytona_smoke: runDaytonaSmoke,
         }),
         "runAllScenarios"
       );
       setRunAllSummary(out);
-      setMessage(`Run-all complete. ${out.steps?.length || 0} phases processed.`);
+      const d = out.daytona;
+      const dmsg = d && !d.skipped ? (d.ok ? " Daytona sandbox OK." : " Daytona sandbox reported an error.") : "";
+      setMessage(`Run-all complete. ${out.steps?.length || 0} phases processed.${dmsg}`);
       await refresh({ silent: true });
       if (out?.update_cycle?.branch_run_id) {
         await handleLoadAudit(out.update_cycle.branch_run_id, { suppressMsg: true });
@@ -298,6 +306,26 @@ const ConsoleTab = () => {
                 <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
                   <input type="checkbox" checked={runUpdateLoop} onChange={(e) => setRunUpdateLoop(e.target.checked)} />
                   <span style={{ fontSize: "var(--t-2)", color: "var(--ink-2)" }}>run 90-day replay + audit after run-all</span>
+                </label>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ fontSize: "var(--t-2)", color: "var(--ink-3)" }}>
+                  Daytona:{" "}
+                  {daytonaStatus?.configured
+                    ? "API key configured (sandbox smoke available)."
+                    : "not configured — set DAYTONA_API_KEY to enable."}
+                </div>
+                <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={runDaytonaSmoke}
+                    onChange={(e) => setRunDaytonaSmoke(e.target.checked)}
+                    disabled={!daytonaStatus?.configured}
+                  />
+                  <span style={{ fontSize: "var(--t-2)", color: "var(--ink-2)" }}>
+                    run Hello World in a Daytona sandbox after run-all (isolated code execution)
+                  </span>
                 </label>
               </div>
 
@@ -520,6 +548,26 @@ const ConsoleTab = () => {
                     )}
                   </div>
                 </div>
+
+                {runAllSummary.daytona ? (
+                  <div style={{ marginTop: 12, borderTop: "1px solid var(--rule)", paddingTop: 12 }}>
+                    <div className="eyebrow">Daytona sandbox (isolated code run)</div>
+                    {runAllSummary.daytona.skipped ? (
+                      <div style={{ marginTop: 8, color: "var(--ink-3)", fontSize: "var(--t-3)" }}>
+                        {runAllSummary.daytona.error || "Skipped — set DAYTONA_API_KEY."}
+                      </div>
+                    ) : (
+                      <div style={{ marginTop: 8 }}>
+                        <KV rows={[
+                          ["ok", String(runAllSummary.daytona.ok)],
+                          ["exit_code", runAllSummary.daytona.exit_code != null ? String(runAllSummary.daytona.exit_code) : "—"],
+                          ["stdout", runAllSummary.daytona.result || "—"],
+                          ["error", runAllSummary.daytona.error || "—"],
+                        ]}/>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
 
                 {auditBundle ? (
                   <div style={{ marginTop: 12, borderTop: "1px solid var(--rule)", paddingTop: 12 }}>

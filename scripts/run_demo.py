@@ -9,9 +9,12 @@ Flow:
 """
 
 import os
+import sys
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.aml.db import MemoryStore, StoreConfig
 from src.aml.service import AMLService

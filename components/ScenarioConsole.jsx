@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import {
   BackendHook,
   Card,
-  Dot,
   Eyebrow,
   KV,
   Rule,
@@ -17,17 +16,62 @@ import {
   getChallenges,
   getCurrentChallenge,
   getEpisodes,
+  getDaytonaStatus,
   listScenarios,
+  prewarm,
   resetDemo,
   runAllScenarios,
   runQuery,
   runScenarioStep,
 } from "./AubricApi";
+import KillerSqlPanel from "./KillerSqlPanel";
+import UpdateCycleTrace from "./UpdateCycleTrace";
 
 const normalizeScenarios = (value = []) => {
   if (!value) return [];
   if (Array.isArray(value)) return value;
   return Object.values(value);
+};
+
+const HeaderPill = ({ tone, label, dim, glow }) => {
+  const palette = {
+    verify: { bg: "rgba(16,185,129,0.14)", border: "rgba(16,185,129,0.5)", fg: "#10b981", dot: "#10b981" },
+    amber: { bg: "rgba(245,158,11,0.14)", border: "rgba(245,158,11,0.5)", fg: "#f59e0b", dot: "#f59e0b" },
+    ghost: { bg: "rgba(148,163,184,0.1)", border: "rgba(148,163,184,0.3)", fg: "#94a3b8", dot: "#64748b" },
+    alarm: { bg: "rgba(239,68,68,0.14)", border: "rgba(239,68,68,0.5)", fg: "#ef4444", dot: "#ef4444" },
+  };
+  const p = palette[tone] || palette.ghost;
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "5px 11px",
+        borderRadius: 999,
+        background: p.bg,
+        border: `1px solid ${p.border}`,
+        color: p.fg,
+        fontFamily: "var(--font-mono)",
+        fontSize: "11px",
+        fontWeight: 700,
+        letterSpacing: "0.03em",
+        opacity: dim ? 0.7 : 1,
+        boxShadow: glow ? `0 0 18px ${p.bg}` : undefined,
+      }}
+    >
+      <span
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: "50%",
+          background: p.dot,
+          boxShadow: `0 0 8px ${p.dot}`,
+        }}
+      />
+      {label}
+    </span>
+  );
 };
 
 const ScenarioConsole = () => {
@@ -39,12 +83,19 @@ const ScenarioConsole = () => {
   const [currentChallenge, setCurrentChallenge] = useState(null);
   const [selectedChallengeId, setSelectedChallengeId] = useState("");
   const [queryState, setQueryState] = useState(null);
+  const [queryMeta, setQueryMeta] = useState(null);
   const [challengeEpisodes, setChallengeEpisodes] = useState([]);
   const [runAllSummary, setRunAllSummary] = useState(null);
   const [lastStep, setLastStep] = useState(null);
   const [auditBundle, setAuditBundle] = useState(null);
   const [runUpdateLoop, setRunUpdateLoop] = useState(true);
+  const [runDaytonaSmoke, setRunDaytonaSmoke] = useState(false);
+  const [daytonaStatus, setDaytonaStatus] = useState(null);
+  const [backend, setBackend] = useState(null);
+  const [exaStatus, setExaStatus] = useState(null);
   const [isBusy, setIsBusy] = useState(false);
+  const [warming, setWarming] = useState(false);
+  const [showDeprecationBanner, setShowDeprecationBanner] = useState(false);
   const [message, setMessage] = useState("Ready.");
   const [error, setError] = useState("");
 
@@ -58,6 +109,18 @@ const ScenarioConsole = () => {
     return payload;
   };
 
+  const captureQueryMeta = (queryPayload) => {
+    if (!queryPayload) return;
+    const meta = {
+      sql_executed: queryPayload.sql_executed,
+      sql_elapsed_ms: queryPayload.sql_elapsed_ms,
+      query_template: queryPayload.query_template,
+      backend: queryPayload.backend,
+    };
+    setQueryMeta(meta);
+    if (meta.backend && meta.backend !== backend) setBackend(meta.backend);
+  };
+
   const refreshChallengeView = async (challengeId, silent = false) => {
     if (!challengeId) return;
     try {
@@ -66,7 +129,9 @@ const ScenarioConsole = () => {
         getEpisodes(challengeId),
         getChallenge(challengeId),
       ]);
-      setQueryState(withStatus(queryPayload, "runQuery")?.query);
+      const q = withStatus(queryPayload, "runQuery");
+      setQueryState(q?.query || null);
+      captureQueryMeta(q);
       setChallengeEpisodes(withStatus(episodePayload, "getEpisodes")?.episodes || []);
       setCurrentChallenge(withStatus(detailPayload, "getChallenge")?.challenge || null);
       setSelectedChallengeId(challengeId);
@@ -106,6 +171,9 @@ const ScenarioConsole = () => {
           currentPayload?.tenant_id || allPayload.tenant_id || scenariosPayload.tenant_id || "",
         );
       }
+
+      const dSt = await getDaytonaStatus();
+      if (dSt?.daytona) setDaytonaStatus(dSt.daytona);
 
       if (opts.keepCurrent) {
         await refreshChallengeView(
@@ -172,6 +240,16 @@ const ScenarioConsole = () => {
     try {
       const out = withStatus(await runScenarioStep(challengeId), "runScenarioStep");
       setLastStep(out.step);
+      const decision = out.step?.decision;
+      if (decision) {
+        setQueryMeta({
+          sql_executed: decision.sql_executed,
+          sql_elapsed_ms: decision.sql_elapsed_ms,
+          query_template: decision.query_template,
+          backend: decision.backend,
+        });
+        if (decision.backend && decision.backend !== backend) setBackend(decision.backend);
+      }
       setMessage(`Ran phase ${out.step?.phase?.phase || "unknown"} (${out.step?.challenge?.phase || out.step?.challenge?.challenge_id || challengeId}).`);
       await refresh({ keepCurrent: false, silent: true });
       await refreshChallengeView(challengeId, true);
@@ -193,11 +271,35 @@ const ScenarioConsole = () => {
           run_update_cycle: runUpdateLoop,
           window_days: 90,
           reset: openChallenges.length === 0,
+          daytona_smoke: runDaytonaSmoke,
         }),
         "runAllScenarios"
       );
       setRunAllSummary(out);
-      setMessage(`Run-all complete. ${out.steps?.length || 0} phases processed.`);
+
+      const firstStep = Array.isArray(out.steps) ? out.steps[0] : null;
+      const firstDecision = firstStep?.decision;
+      if (firstDecision?.backend && firstDecision.backend !== backend) {
+        setBackend(firstDecision.backend);
+      }
+      if (firstDecision?.query_template) {
+        setQueryMeta({
+          sql_executed: firstDecision.sql_executed,
+          sql_elapsed_ms: firstDecision.sql_elapsed_ms,
+          query_template: firstDecision.query_template,
+          backend: firstDecision.backend,
+        });
+      }
+      if (out?.update_cycle?.exa) {
+        setExaStatus({
+          configured: !!out.update_cycle.exa.configured,
+          hits: out.update_cycle.exa.hits || [],
+        });
+      }
+
+      const d = out.daytona;
+      const dmsg = d && !d.skipped ? (d.ok ? " Daytona sandbox OK." : " Daytona sandbox reported an error.") : "";
+      setMessage(`Run-all complete. ${out.steps?.length || 0} phases processed.${dmsg}`);
       await refresh({ silent: true });
       if (out?.update_cycle?.branch_run_id) {
         await handleLoadAudit(out.update_cycle.branch_run_id, { suppressMsg: true });
@@ -255,6 +357,24 @@ const ScenarioConsole = () => {
 
   useEffect(() => {
     refresh();
+    if (typeof window !== "undefined" && window.location && window.location.port === "3000") {
+      setShowDeprecationBanner(true);
+    }
+    let timer;
+    setWarming(true);
+    (async () => {
+      try {
+        const resp = await prewarm();
+        if (resp && resp.backend && !backend) setBackend(resp.backend);
+      } catch {
+        // swallow — prewarm is best-effort
+      } finally {
+        timer = setTimeout(() => setWarming(false), 2500);
+      }
+    })();
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only bootstrap
   }, []);
 
@@ -277,8 +397,96 @@ const ScenarioConsole = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- scenario plan drives default selection
   }, [allChallenges, selectedScenario]);
 
+  const backendPill = backend === "tidb"
+    ? <HeaderPill tone="verify" label="TiDB Cloud · HNSW" glow />
+    : backend === "sqlite"
+      ? <HeaderPill tone="amber" label="SQLite · dev" />
+      : <HeaderPill tone="ghost" label="backend —" dim />;
+
+  const daytonaPill = daytonaStatus?.configured
+    ? <HeaderPill tone="verify" label="Daytona ✓" />
+    : <HeaderPill tone="ghost" label="Daytona —" dim />;
+
+  const exaPill = exaStatus?.configured
+    ? <HeaderPill tone="verify" label="Exa ✓" />
+    : <HeaderPill tone="ghost" label="Exa —" dim />;
+
   return (
     <section style={{ minHeight: "100vh", background: "var(--paper-3)", padding: "24px 28px 64px" }}>
+      {showDeprecationBanner ? (
+        <div
+          style={{
+            marginBottom: 14,
+            padding: "10px 14px",
+            borderRadius: 10,
+            background: "rgba(245,158,11,0.08)",
+            border: "1px solid rgba(245,158,11,0.35)",
+            color: "#fcd34d",
+            fontSize: "12px",
+            fontFamily: "var(--font-mono)",
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+          }}
+        >
+          <span style={{ fontSize: "14px" }}>⚠️</span>
+          <span>
+            Demo UI lives on port 3000 (this page). The legacy static UI at :9000 is deprecated.
+          </span>
+        </div>
+      ) : null}
+
+      <div
+        style={{
+          marginBottom: 18,
+          padding: "12px 16px",
+          background: "var(--glass-bg)",
+          border: "1px solid var(--glass-border)",
+          borderRadius: "var(--radius-lg)",
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          gap: 10,
+          backdropFilter: "blur(14px)",
+          WebkitBackdropFilter: "blur(14px)",
+        }}
+      >
+        <div
+          className="eyebrow"
+          style={{ letterSpacing: "0.14em", fontSize: "11px", color: "#a5b4fc", marginRight: 4 }}
+        >
+          stack
+        </div>
+        {backendPill}
+        {daytonaPill}
+        {exaPill}
+        <div style={{ flex: 1 }} />
+        {warming ? (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: "11px",
+              color: "var(--text-tertiary)",
+              fontFamily: "var(--font-mono)",
+            }}
+          >
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: "#4facfe",
+                boxShadow: "0 0 10px #4facfe",
+                animation: "pulse 1.2s ease-in-out infinite",
+              }}
+            />
+            warming…
+          </span>
+        ) : null}
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 22, alignItems: "start" }}>
         <Xhair>
           <div style={{ background: "var(--paper)", padding: "18px 18px 20px", borderBottom: "1px solid var(--rule)" }}>
@@ -336,6 +544,26 @@ const ScenarioConsole = () => {
                   <input type="checkbox" checked={runUpdateLoop} onChange={(e) => setRunUpdateLoop(e.target.checked)} />
                   <span style={{ fontSize: "var(--t-2)", color: "var(--ink-2)" }}>
                     run 90-day replay + audit after run-all
+                  </span>
+                </label>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ fontSize: "var(--t-2)", color: "var(--ink-3)" }}>
+                  Daytona:{" "}
+                  {daytonaStatus?.configured
+                    ? "API key configured (sandbox smoke available)."
+                    : "not configured — set DAYTONA_API_KEY to enable."}
+                </div>
+                <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={runDaytonaSmoke}
+                    onChange={(e) => setRunDaytonaSmoke(e.target.checked)}
+                    disabled={!daytonaStatus?.configured}
+                  />
+                  <span style={{ fontSize: "var(--t-2)", color: "var(--ink-2)" }}>
+                    run Hello World in a Daytona sandbox after run-all (isolated code execution)
                   </span>
                 </label>
               </div>
@@ -400,6 +628,13 @@ const ScenarioConsole = () => {
         </Xhair>
 
         <div style={{ display: "grid", gap: 16 }}>
+          <KillerSqlPanel
+            sql={queryMeta?.query_template}
+            elapsedMs={queryMeta?.sql_elapsed_ms}
+            backend={queryMeta?.backend || backend}
+            executed={queryMeta?.sql_executed === true}
+          />
+
           <Xhair>
             <Card title="Current challenge / scenario card" right={statusFor(currentChallenge)}>
               <div style={{ padding: 8 }}>
@@ -560,6 +795,34 @@ const ScenarioConsole = () => {
                   </div>
                 </div>
 
+                {runAllSummary.update_cycle ? (
+                  <div style={{ marginTop: 14 }}>
+                    <UpdateCycleTrace cycle={runAllSummary.update_cycle} />
+                  </div>
+                ) : null}
+
+                {runAllSummary.daytona ? (
+                  <div style={{ marginTop: 12, borderTop: "1px solid var(--rule)", paddingTop: 12 }}>
+                    <div className="eyebrow">Daytona sandbox (isolated code run)</div>
+                    {runAllSummary.daytona.skipped ? (
+                      <div style={{ marginTop: 8, color: "var(--ink-3)", fontSize: "var(--t-3)" }}>
+                        {runAllSummary.daytona.error || "Skipped — set DAYTONA_API_KEY."}
+                      </div>
+                    ) : (
+                      <div style={{ marginTop: 8 }}>
+                        <KV
+                          rows={[
+                            ["ok", String(runAllSummary.daytona.ok)],
+                            ["exit_code", runAllSummary.daytona.exit_code != null ? String(runAllSummary.daytona.exit_code) : "—"],
+                            ["stdout", runAllSummary.daytona.result || "—"],
+                            ["error", runAllSummary.daytona.error || "—"],
+                          ]}
+                        />
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+
                 {auditBundle ? (
                   <div style={{ marginTop: 12, borderTop: "1px solid var(--rule)", paddingTop: 12 }}>
                     <div className="eyebrow">Audit bundle ({auditBundle.format || "json"})</div>
@@ -583,4 +846,3 @@ const ScenarioConsole = () => {
 };
 
 export default ScenarioConsole;
-

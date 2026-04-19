@@ -14,3 +14,10 @@ build/
 venv/
 data/*.sqlite
 data/*.db
+data/*.sqlite
+data/*.sqlite-journal
+data/audit_brn-*.json
+src/aml/__pycache__/
+tests/__pycache__/
+scripts/__pycache__/
+

@@ -48,6 +48,16 @@ flowchart LR
 
 ## Fast start (SQLite local demo)
 
+### One-shot commands
+
+- `make install` — install pnpm + pip deps
+- `make demo` — run the demo (SQLite)
+- `make demo-tidb` — run the demo against TiDB (requires DATABASE_URL)
+- `make test` — run the pytest smoke suite
+- `make rehearse` — full dress rehearsal (install + build + test + demo)
+- `make prewarm` — warm the TiDB connection + Daytona sandbox before judging
+- See [docs/tidb_setup.md](docs/tidb_setup.md) for the TiDB Cloud runbook.
+
 ### 1) Install frontend dependencies
 
 ```bash
