@@ -64,7 +64,7 @@ class MemoryStore:
     def _init_tidb(self):
         # Optional path for connected TiDB. Keep explicit and fail fast if deps are missing.
         try:
-            import mysql.connector
+            import mysql.connector  # noqa: F401
         except Exception as exc:
             raise RuntimeError("mysql.connector is required for TiDB backend") from exc
 
@@ -75,31 +75,60 @@ class MemoryStore:
         if not parsed.hostname or not parsed.path:
             raise RuntimeError("DATABASE_URL must include host and database (mysql://user:pass@host:port/db)")
 
-        user = parsed.username
-        password = parsed.password
-        host = parsed.hostname
-        port = parsed.port or 4000
-        database = parsed.path.lstrip("/")
-
-        self.conn = mysql.connector.connect(
-            user=user,
-            password=password,
-            host=host,
-            port=port,
-            database=database or "aubric_aml",
+        self._tidb_params = dict(
+            user=parsed.username,
+            password=parsed.password,
+            host=parsed.hostname,
+            port=parsed.port or 4000,
+            database=parsed.path.lstrip("/") or "aubric_aml",
             autocommit=True,
+            connection_timeout=15,
         )
+        self._connect_tidb()
+
+    def _connect_tidb(self):
+        import mysql.connector
+        self.conn = mysql.connector.connect(**self._tidb_params)
+
+    def _ensure_connection(self):
+        # TiDB Cloud Serverless drops idle connections. Before each query, verify
+        # the connection is healthy; if it isn't, transparently reconnect.
+        if self.backend != "tidb":
+            return
+        try:
+            self.conn.ping(reconnect=True, attempts=2, delay=1)
+        except Exception:
+            # Full reconnect as last resort (e.g. socket reset, auth expired).
+            try:
+                self.conn.close()
+            except Exception:
+                pass
+            self._connect_tidb()
 
     def execute(self, sql: str, params: Optional[tuple] = None):
-        cur = self.conn.cursor()
+        self._ensure_connection()
         if self.backend == "tidb" and params is not None:
             # mysql-connector expects %s placeholders; existing SQL in this repo uses ?.
             sql = sql.replace("?", "%s")
-        if params is not None:
-            cur.execute(sql, params)
-        else:
-            cur.execute(sql)
-        return cur
+        try:
+            cur = self.conn.cursor()
+            if params is not None:
+                cur.execute(sql, params)
+            else:
+                cur.execute(sql)
+            return cur
+        except Exception:
+            # One retry after reconnect — handles the rare race where ping
+            # passed but the connection dropped between ping and execute.
+            if self.backend != "tidb":
+                raise
+            self._connect_tidb()
+            cur = self.conn.cursor()
+            if params is not None:
+                cur.execute(sql, params)
+            else:
+                cur.execute(sql)
+            return cur
 
     def fetchone(self, sql: str, params: Optional[tuple] = None):
         cur = self.execute(sql, params)
