@@ -204,6 +204,7 @@ class DemoService:
                     "label": row_raw.get("label", row["challenge_id"]),
                     "decision": step["decision"],
                     "challenge": step["challenge"],
+                    "consolidated": bool(step.get("consolidated")),
                 }
             )
 

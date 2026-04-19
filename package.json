@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "next dev -p 3000",
-    "dev:api": "bash -c 'P=$([ -f venv/bin/python ] && echo venv/bin/python || echo python3); $P scripts/demo_api_server.py'",
+    "dev:api": "bash -c 'lsof -ti:9000 | xargs kill -9 2>/dev/null; P=$([ -f venv/bin/python ] && echo venv/bin/python || echo python3); $P scripts/demo_api_server.py'",
     "dev:all": "concurrently -k \"pnpm dev\" \"pnpm dev:api\"",
     "demo": "pnpm dev:all",
     "build": "next build",

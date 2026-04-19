@@ -1,5 +1,6 @@
 -- Aubric AML – TiDB schema for 48h hackathon
 -- Assumes TiDB 8.5+ with VECTOR + HNSW enabled.
+-- Demo uses 16-dim fixture embeddings; replace with VECTOR(1536) (or your production dim) when integrating a real encoder.
 
 CREATE DATABASE IF NOT EXISTS aubric_aml;
 USE aubric_aml;
@@ -32,7 +33,7 @@ CREATE TABLE IF NOT EXISTS active_challenges (
   modality          VARCHAR(16) NOT NULL,
   asset_id          VARCHAR(255) NOT NULL,
   status            VARCHAR(24) NOT NULL DEFAULT 'open',
-  current_embedding VECTOR(1536),
+  current_embedding VECTOR(16),
   raw_features      JSON,
   model_version     VARCHAR(64),
   risk_tier         VARCHAR(32) NOT NULL,
@@ -50,7 +51,7 @@ CREATE TABLE IF NOT EXISTS authentic_fingerprints (
   customer_id       VARCHAR(64) NOT NULL,
   modality          VARCHAR(16) NOT NULL,
   modality_version  VARCHAR(32) DEFAULT 'v1',
-  embedding         VECTOR(1536) NOT NULL,
+  embedding         VECTOR(16) NOT NULL,
   source_event_id    VARCHAR(64),
   is_current        TINYINT(1) NOT NULL DEFAULT 1,
   quality_score     DECIMAL(5,4) DEFAULT NULL,
@@ -69,7 +70,7 @@ CREATE TABLE IF NOT EXISTS attack_fingerprints (
   modality           VARCHAR(16) NOT NULL,
   generator_family   VARCHAR(128),
   attack_family      VARCHAR(128),
-  embedding          VECTOR(1536) NOT NULL,
+  embedding          VECTOR(16) NOT NULL,
   source_url         VARCHAR(1024),
   exa_observation_id VARCHAR(128),
   severity_band      VARCHAR(16) NOT NULL DEFAULT 'medium',

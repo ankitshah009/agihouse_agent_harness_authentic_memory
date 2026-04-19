@@ -74,6 +74,174 @@ const HeaderPill = ({ tone, label, dim, glow }) => {
   );
 };
 
+// Horizontal 4-step phase stepper. Mobile falls back to vertical via flex-wrap.
+const STEPPER_PALETTE = {
+  upcoming: { bg: "rgba(148,163,184,0.08)", ring: "rgba(148,163,184,0.35)", fg: "var(--ink-3)", dot: "#94a3b8" },
+  running:  { bg: "rgba(79,172,254,0.12)",  ring: "rgba(79,172,254,0.7)",  fg: "#4facfe",     dot: "#4facfe" },
+  allow:    { bg: "rgba(16,185,129,0.14)",  ring: "rgba(16,185,129,0.6)",  fg: "#10b981",     dot: "#10b981" },
+  deny:     { bg: "rgba(239,68,68,0.14)",   ring: "rgba(239,68,68,0.6)",   fg: "#ef4444",     dot: "#ef4444" },
+  review:   { bg: "rgba(245,158,11,0.14)",  ring: "rgba(245,158,11,0.6)",  fg: "#f59e0b",     dot: "#f59e0b" },
+  failed:   { bg: "rgba(239,68,68,0.14)",   ring: "rgba(239,68,68,0.6)",   fg: "#ef4444",     dot: "#ef4444" },
+  completed:{ bg: "rgba(16,185,129,0.14)",  ring: "rgba(16,185,129,0.6)",  fg: "#10b981",     dot: "#10b981" },
+};
+
+const PhaseStepper = ({ steps, currentIdx }) => {
+  if (!steps || !steps.length) return null;
+  return (
+    <div
+      style={{
+        padding: "14px 18px 16px",
+        background: "var(--paper)",
+        border: "1px solid var(--rule)",
+        borderRadius: 12,
+        marginBottom: 18,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <div className="eyebrow" style={{ color: "var(--ink-3)", letterSpacing: "0.14em" }}>
+          Incident timeline · INC-4431 · Dating Platform Takeover
+        </div>
+        <div style={{ fontSize: "var(--t-2)", color: "var(--ink-3)", fontFamily: "var(--font-mono)" }}>
+          {steps.length} phases
+        </div>
+      </div>
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "stretch",
+          gap: 0,
+        }}
+      >
+        {steps.map((step, idx) => {
+          const isCurrent = idx === currentIdx;
+          const paletteKey =
+            step.status === "running" ? "running"
+              : step.status === "failed" ? "failed"
+                : step.status === "completed"
+                  ? (step.verdict === "deny" ? "deny" : step.verdict === "review" ? "review" : "allow")
+                  : "upcoming";
+          const p = STEPPER_PALETTE[paletteKey];
+          const stepLabel =
+            step.status === "completed"
+              ? (step.verdict ? step.verdict.toUpperCase() : "DONE")
+              : step.status === "running"
+                ? "RUNNING"
+                : step.status === "failed"
+                  ? "FAILED"
+                  : "UPCOMING";
+          return (
+            <div
+              key={step.challenge_id}
+              style={{
+                flex: "1 1 200px",
+                minWidth: 180,
+                display: "flex",
+                alignItems: "stretch",
+                position: "relative",
+              }}
+            >
+              <div
+                style={{
+                  flex: 1,
+                  padding: "10px 12px",
+                  background: p.bg,
+                  border: `1px solid ${p.ring}`,
+                  borderRadius: 10,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 6,
+                  transition: "background 0.3s ease, border-color 0.3s ease",
+                  animation: isCurrent && step.status === "running" ? "stepperBreathe 1.6s ease-in-out infinite" : "none",
+                  boxShadow: isCurrent && step.status === "running" ? `0 0 18px ${p.ring}` : "none",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span
+                      style={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: "50%",
+                        background: p.dot,
+                        color: "#0b1220",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 11,
+                        fontWeight: 800,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        boxShadow: `0 0 10px ${p.dot}66`,
+                      }}
+                    >
+                      {step.status === "completed" ? "\u2713" : idx + 1}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        letterSpacing: "0.12em",
+                        textTransform: "uppercase",
+                        color: "var(--ink-3)",
+                        fontFamily: "var(--font-mono)",
+                      }}
+                    >
+                      Phase {idx + 1}
+                    </span>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontFamily: "var(--font-mono)",
+                      fontWeight: 700,
+                      color: p.fg,
+                      padding: "2px 7px",
+                      borderRadius: 999,
+                      border: `1px solid ${p.ring}`,
+                      background: "rgba(0,0,0,0.18)",
+                      letterSpacing: "0.06em",
+                    }}
+                  >
+                    {stepLabel}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "var(--text-primary)",
+                    lineHeight: 1.25,
+                  }}
+                >
+                  {step.title}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--ink-3)", fontFamily: "var(--font-mono)" }}>
+                  {step.challenge_id}
+                </div>
+              </div>
+              {idx < steps.length - 1 ? (
+                <div
+                  aria-hidden="true"
+                  style={{
+                    width: 18,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "var(--ink-3)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 14,
+                  }}
+                >
+                  <span style={{ opacity: 0.55 }}>&rarr;</span>
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 const ScenarioConsole = () => {
   const [tenantId, setTenantId] = useState("");
   const [scenarios, setScenarios] = useState([]);
@@ -97,9 +265,29 @@ const ScenarioConsole = () => {
   const [warming, setWarming] = useState(false);
   const [message, setMessage] = useState("Ready.");
   const [error, setError] = useState("");
+  // Streaming per-phase progress for the hero stepper.
+  // phaseRuns[challenge_id] = { status: "upcoming"|"running"|"completed"|"failed", verdict, error }
+  const [phaseRuns, setPhaseRuns] = useState({});
+  const [runningPhaseIdx, setRunningPhaseIdx] = useState(-1);
 
   const scenario = scenarios.find((s) => s.id === selectedScenario);
   const scenarioPhases = scenario?.phases || [];
+
+  // Stepper view model — derives directly from scenario plan + phaseRuns state.
+  const stepperSteps = scenarioPhases.map((p) => {
+    const live = phaseRuns[p.challenge_id];
+    const row = allChallenges.find((c) => c.challenge_id === p.challenge_id);
+    const closedRow = row && row.status === "closed";
+    const status = live?.status
+      || (closedRow ? "completed" : (row && row.status === "open" ? "upcoming" : "upcoming"));
+    return {
+      challenge_id: p.challenge_id,
+      title: p.notes || p.label || p.phase || p.challenge_id,
+      status,
+      verdict: live?.verdict || null,
+      error: live?.error || null,
+    };
+  });
 
   const withStatus = (payload, action) => {
     if (!payload || payload.ok === false) {
@@ -260,51 +448,149 @@ const ScenarioConsole = () => {
   };
 
   const handleRunAll = async () => {
+    if (!scenarioPhases.length) {
+      setError("No scenario plan loaded. Click 'Seed scenario' first.");
+      return;
+    }
     setIsBusy(true);
     setError("");
     setAuditBundle(null);
+    setRunAllSummary(null);
+
+    // Seed the stepper to "upcoming" for every phase so the user sees the plan.
+    const seedRuns = {};
+    scenarioPhases.forEach((p) => {
+      seedRuns[p.challenge_id] = { status: "upcoming", verdict: null, error: null };
+    });
+    setPhaseRuns(seedRuns);
+    setRunningPhaseIdx(-1);
+
+    // If there are no open challenges, seed the scenario so per-step calls have live state.
     try {
-      const out = withStatus(
-        await runAllScenarios({
-          scenario_id: selectedScenario,
-          run_update_cycle: runUpdateLoop,
-          window_days: 90,
-          reset: openChallenges.length === 0,
-          daytona_smoke: runDaytonaSmoke,
-        }),
-        "runAllScenarios"
-      );
-      setRunAllSummary(out);
-
-      const firstStep = Array.isArray(out.steps) ? out.steps[0] : null;
-      const firstDecision = firstStep?.decision;
-      if (firstDecision?.backend && firstDecision.backend !== backend) {
-        setBackend(firstDecision.backend);
-      }
-      if (firstDecision?.query_template) {
-        setQueryMeta({
-          sql_executed: firstDecision.sql_executed,
-          sql_elapsed_ms: firstDecision.sql_elapsed_ms,
-          query_template: firstDecision.query_template,
-          backend: firstDecision.backend,
-        });
-      }
-      if (out?.update_cycle?.exa) {
-        setExaStatus({
-          configured: !!out.update_cycle.exa.configured,
-          hits: out.update_cycle.exa.hits || [],
-        });
-      }
-
-      const d = out.daytona;
-      const dmsg = d && !d.skipped ? (d.ok ? " Daytona sandbox OK." : " Daytona sandbox reported an error.") : "";
-      setMessage(`Run-all complete. ${out.steps?.length || 0} phases processed.${dmsg}`);
-      await refresh({ silent: true });
-      if (out?.update_cycle?.branch_run_id) {
-        await handleLoadAudit(out.update_cycle.branch_run_id, { suppressMsg: true });
+      if (openChallenges.length === 0) {
+        const seedOut = await resetDemo({ scenario_id: selectedScenario || "dating_takeover" });
+        if (seedOut && seedOut.ok === false) {
+          throw new Error(seedOut.error || "Failed to seed scenario before run-all");
+        }
       }
     } catch (err) {
-      setError(String(err || "Run-all failed"));
+      setError(String(err || "Failed to seed before run-all"));
+      setIsBusy(false);
+      return;
+    }
+
+    const collectedSteps = [];
+    let haltedAt = -1;
+
+    for (let i = 0; i < scenarioPhases.length; i += 1) {
+      const phase = scenarioPhases[i];
+      const cid = phase.challenge_id;
+      setRunningPhaseIdx(i);
+      setPhaseRuns((prev) => ({
+        ...prev,
+        [cid]: { status: "running", verdict: null, error: null },
+      }));
+      setMessage(`Phase ${i + 1} of ${scenarioPhases.length} · ${phase.label || phase.phase || cid} · verifying…`);
+
+      try {
+        const resp = await runScenarioStep(cid);
+        if (!resp || resp.ok === false) {
+          throw new Error(resp?.error || `runScenarioStep failed for ${cid}`);
+        }
+        const step = resp.step;
+        const decision = step?.decision || {};
+        const verdict = decision.decision || null;
+
+        // Light up the SQL panel with this phase's decision meta.
+        if (decision.query_template || decision.sql_executed !== undefined) {
+          setQueryMeta({
+            sql_executed: decision.sql_executed,
+            sql_elapsed_ms: decision.sql_elapsed_ms,
+            query_template: decision.query_template,
+            backend: decision.backend,
+          });
+          if (decision.backend && decision.backend !== backend) setBackend(decision.backend);
+        }
+        setLastStep(step);
+
+        setPhaseRuns((prev) => ({
+          ...prev,
+          [cid]: { status: "completed", verdict, error: null },
+        }));
+
+        collectedSteps.push({
+          challenge_id: cid,
+          scenario: phase.scenario_id || selectedScenario,
+          phase: phase.phase,
+          label: phase.label,
+          decision,
+          challenge: step?.challenge || null,
+        });
+      } catch (err) {
+        const msg = err ? String(err.message || err) : "phase failed";
+        setPhaseRuns((prev) => ({
+          ...prev,
+          [cid]: { status: "failed", verdict: null, error: msg },
+        }));
+        setError(`Phase ${i + 1} (${cid}) failed: ${msg}`);
+        haltedAt = i;
+        break;
+      }
+    }
+    setRunningPhaseIdx(-1);
+
+    if (haltedAt >= 0) {
+      setIsBusy(false);
+      return;
+    }
+
+    // Per-phase calls have already advanced state. If the update cycle is requested,
+    // invoke run-all with reset=false to drive the 90-day replay + audit bundle.
+    // remaining_open will be 0, so the backend short-circuits seeding work.
+    try {
+      if (runUpdateLoop) {
+        setMessage("All phases processed · running 90-day replay + audit…");
+        const out = withStatus(
+          await runAllScenarios({
+            scenario_id: selectedScenario,
+            run_update_cycle: true,
+            window_days: 90,
+            reset: false,
+            daytona_smoke: runDaytonaSmoke,
+          }),
+          "runAllScenarios"
+        );
+        // Prefer the backend's fully-enriched steps list if available.
+        if (Array.isArray(out.steps) && out.steps.length) {
+          setRunAllSummary(out);
+        } else {
+          setRunAllSummary({ ...out, steps: collectedSteps });
+        }
+        if (out?.update_cycle?.exa) {
+          setExaStatus({
+            configured: !!out.update_cycle.exa.configured,
+            hits: out.update_cycle.exa.hits || [],
+          });
+        }
+        const d = out.daytona;
+        const dmsg = d && !d.skipped ? (d.ok ? " Daytona sandbox OK." : " Daytona sandbox reported an error.") : "";
+        setMessage(`Run-all complete. ${collectedSteps.length} phases processed.${dmsg}`);
+        if (out?.update_cycle?.branch_run_id) {
+          await handleLoadAudit(out.update_cycle.branch_run_id, { suppressMsg: true });
+        }
+      } else {
+        setRunAllSummary({
+          tenant_id: tenantId,
+          scenario_id: selectedScenario,
+          steps: collectedSteps,
+          run_all: true,
+          remaining_open: 0,
+        });
+        setMessage(`Run-all complete. ${collectedSteps.length} phases processed.`);
+      }
+      await refresh({ silent: true });
+    } catch (err) {
+      setError(String(err || "Update cycle failed"));
     } finally {
       setIsBusy(false);
     }
@@ -408,8 +694,18 @@ const ScenarioConsole = () => {
     ? <HeaderPill tone="verify" label="Exa ✓" />
     : <HeaderPill tone="ghost" label="Exa —" dim />;
 
+  const runningPhaseLabel = runningPhaseIdx >= 0 && scenarioPhases[runningPhaseIdx]
+    ? scenarioPhases[runningPhaseIdx].label || scenarioPhases[runningPhaseIdx].phase || scenarioPhases[runningPhaseIdx].challenge_id
+    : null;
+
   return (
     <section style={{ minHeight: "100vh", background: "var(--paper-3)", padding: "24px 28px 64px" }}>
+      <style>{`
+        @keyframes stepperBreathe {
+          0%, 100% { filter: brightness(1); }
+          50% { filter: brightness(1.18); }
+        }
+      `}</style>
       <div
         style={{
           marginBottom: 18,
@@ -442,6 +738,8 @@ const ScenarioConsole = () => {
           </span>
         ) : null}
       </div>
+
+      <PhaseStepper steps={stepperSteps} currentIdx={runningPhaseIdx} />
 
       <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 22, alignItems: "start" }}>
         <Xhair>
@@ -498,6 +796,42 @@ const ScenarioConsole = () => {
                   Refresh
                 </button>
               </div>
+              {runningPhaseIdx >= 0 && scenarioPhases.length ? (
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignSelf: "flex-start",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "6px 12px",
+                    borderRadius: 999,
+                    background: "rgba(79,172,254,0.12)",
+                    border: "1px solid rgba(79,172,254,0.5)",
+                    color: "#4facfe",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: "0.04em",
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: "50%",
+                      background: "#4facfe",
+                      boxShadow: "0 0 10px #4facfe",
+                      animation: "pulse 1s ease-in-out infinite",
+                    }}
+                  />
+                  Phase {runningPhaseIdx + 1} of {scenarioPhases.length} · verifying…
+                  {runningPhaseLabel ? (
+                    <span style={{ opacity: 0.75, textTransform: "none", letterSpacing: "0.02em" }}>
+                      {runningPhaseLabel}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
 
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <label className="eyebrow" style={{ marginRight: 6 }}>Update cycle</label>
@@ -531,22 +865,29 @@ const ScenarioConsole = () => {
 
               <Rule dotted />
 
-              <div>
-                <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(102,126,234,0.08)", border: "1px solid rgba(102,126,234,0.25)", borderRadius: 10 }}>
-                  <div style={{ fontSize: "var(--text-xs)", color: "#a5b4fc", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 700, marginBottom: 4 }}>
-                    Active incident
-                  </div>
-                  <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-primary)" }}>
-                    {scenario?.incident_id ? `INC-${scenario.incident_id}` : "INC-4431"} · {scenario?.name || "Dating Platform Takeover"}
-                  </div>
-                  <div style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)", marginTop: 3 }}>
-                    {scenarioPhases.length > 0 ? scenarioPhases.map(p => p.phase || p.label).join(" → ") : "Onboarding → Attack → Escalation → Recovery"}
-                  </div>
-                </div>
-                <label className="eyebrow">Phase controls</label>
-                <div style={{ marginTop: 8 }}>
+              <details
+                style={{
+                  border: "1px solid var(--rule)",
+                  borderRadius: 8,
+                  padding: "8px 12px",
+                  background: "var(--paper)",
+                }}
+              >
+                <summary
+                  style={{
+                    cursor: "pointer",
+                    fontSize: "var(--t-2)",
+                    color: "var(--ink-2)",
+                    letterSpacing: "0.04em",
+                    padding: "4px 0",
+                    userSelect: "none",
+                  }}
+                >
+                  Advanced: run individual phases
+                </summary>
+                <div style={{ marginTop: 10 }}>
                   <div style={{ color: "var(--ink-3)", fontSize: "var(--t-3)" }}>
-                    Plan: {scenarioPhases.length ? scenarioPhases.map((p) => p.label).join(" → ") : "No scenario loaded."}
+                    Plan: {scenarioPhases.length ? scenarioPhases.map((p) => p.label).join(" \u2192 ") : "No scenario loaded."}
                   </div>
                   <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
                     {scenarioPhases.length ? (
@@ -590,13 +931,13 @@ const ScenarioConsole = () => {
                   </div>
                   {nextPhase ? (
                     <div style={{ marginTop: 10 }}>
-                      <button className="btn primary" onClick={() => handleRunNext(nextPhase.challenge_id)} disabled={isBusy} title="Run next open phase from current plan">
+                      <button className="btn" onClick={() => handleRunNext(nextPhase.challenge_id)} disabled={isBusy} title="Run next open phase from current plan">
                         Run next phase
                       </button>
                     </div>
                   ) : null}
                 </div>
-              </div>
+              </details>
             </div>
           </div>
         </Xhair>
@@ -605,8 +946,10 @@ const ScenarioConsole = () => {
           <KillerSqlPanel
             sql={queryMeta?.query_template}
             elapsedMs={queryMeta?.sql_elapsed_ms}
+            queryMs={queryMeta?.query_ms}
             backend={queryMeta?.backend || backend}
             executed={queryMeta?.sql_executed === true}
+            executing={isBusy}
           />
 
           <Xhair>

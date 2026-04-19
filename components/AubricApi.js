@@ -55,14 +55,14 @@ export const getEpisodes = async (id) => unwrap(await request(`/api/challenges/$
 export const resetDemo = async (opts = {}) => unwrap(await request("/api/demo/reset", {
   method: "POST",
   body: JSON.stringify(opts || {}),
-}));
+}, 30000));
 export const runAllScenarios = async (opts = {}) => unwrap(await request("/api/demo/run-all", {
   method: "POST",
   body: JSON.stringify(opts || {}),
-}));
+}, 120000));
 export const getAudit = async (branchRunId) => unwrap(await request(`/api/audit/${encodeURIComponent(branchRunId)}`));
 
-export const prewarm = async () => unwrap(await request("/api/demo/prewarm", { method: "POST" }));
+export const prewarm = async () => unwrap(await request("/api/demo/prewarm", { method: "POST" }, 30000));
 
 export const getDaytonaStatus = async () => unwrap(await request("/api/daytona/status"));
 
@@ -71,5 +71,5 @@ export const runDaytonaCode = async (code, opts = {}) =>
     await request("/api/daytona/run", {
       method: "POST",
       body: JSON.stringify({ code, ...(opts.timeout ? { timeout: opts.timeout } : {}) }),
-    }),
+    }, 60000),
   );

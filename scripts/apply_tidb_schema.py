@@ -5,7 +5,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-for line in (ROOT / '.env').read_text().splitlines():
+env_path = ROOT / '.env'
+if not env_path.exists():
+    sys.exit("No .env file found. Copy .env.example to .env and fill in DATABASE_URL before running this script.")
+for line in env_path.read_text().splitlines():
     line = line.strip()
     if line and not line.startswith('#') and '=' in line:
         k, _, v = line.partition('=')
@@ -17,6 +20,8 @@ except ImportError:
     sys.exit("pymysql not found — run: ./venv/bin/pip install pymysql")
 
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
+if not DATABASE_URL:
+    sys.exit("DATABASE_URL is not set. Set it in .env (mysql://user:pass@host:port/db) before running this script.")
 m = re.match(r'mysql://([^:]+):([^@]+)@([^:/]+):(\d+)/(.+)', DATABASE_URL)
 if not m:
     sys.exit(f"Cannot parse DATABASE_URL: {DATABASE_URL!r}")
@@ -44,7 +49,6 @@ def remove_fk_lines(stmt: str) -> str:
 
 
 def transform(sql: str) -> str:
-    sql = sql.replace('VECTOR(1536)', 'VECTOR(16)')
     sql = re.sub(
         r'CREATE\s+VIEW\s+IF\s+NOT\s+EXISTS',
         'CREATE OR REPLACE VIEW',

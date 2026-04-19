@@ -59,14 +59,14 @@ window.AML_API = (() => {
     runAllScenarios: async (opts = {}) => unwrap(await api(`/api/demo/run-all`, {
       method: "POST",
       body: JSON.stringify(opts || {}),
-    })),
+    }, 120000)),
     runQuery: async (id) => {
       return unwrap(await api(`/api/challenges/${encodeURIComponent(id)}/query`));
     },
     resetDemo: async (opts = {}) => unwrap(await api(`/api/demo/reset`, {
       method: "POST",
       body: JSON.stringify(opts || {}),
-    })),
+    }, 30000)),
     getAudit: async (branchRunId) => unwrap(await api(`/api/audit/${encodeURIComponent(branchRunId)}`)),
     getDaytonaStatus: async () => unwrap(await api("/api/daytona/status")),
     runDaytonaCode: async (code, opts = {}) =>

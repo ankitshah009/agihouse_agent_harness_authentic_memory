@@ -18,8 +18,8 @@
 
   --text-primary: #f8fafc;
   --text-secondary: #cbd5e1;
-  --text-tertiary: #94a3b8;
-  --text-muted: #64748b;
+  --text-tertiary: #cbd5e1;  /* bumped from #94a3b8 for WCAG contrast */
+  --text-muted: #94a3b8;     /* formerly --text-tertiary; truly de-emphasized */
 
   --border: rgba(255, 255, 255, 0.1);
   --border-light: rgba(255, 255, 255, 0.05);
@@ -87,6 +87,34 @@
   --glass-bg: rgba(255, 255, 255, 0.08);
   --glass-border: rgba(255, 255, 255, 0.18);
   --glass-blur: 20px;
+
+  /* ── Semantic surface tokens (aliased to glass dark palette) ── */
+  /* Paper = card/panel surfaces */
+  --paper:   rgba(30, 41, 59, 0.85);   /* ≈ --bg-secondary, glassy */
+  --paper-2: rgba(51, 65, 85, 0.7);    /* ≈ --bg-tertiary, slightly elevated */
+  --paper-3: #0f172a;                  /* ≈ --bg-primary, page background */
+
+  /* Ink = text hierarchy */
+  --ink:   #f8fafc;   /* ≈ --text-primary */
+  --ink-2: #cbd5e1;   /* ≈ --text-secondary */
+  --ink-3: #94a3b8;   /* ≈ --text-tertiary */
+
+  /* Rule = border / divider */
+  --rule: rgba(255, 255, 255, 0.1);    /* ≈ --border */
+
+  /* Alarm = danger / red accent */
+  --alarm: #ef4444;   /* ≈ --error */
+
+  /* Type scale — named t-1 (smallest) … t-6 (largest) */
+  --t-1: 0.6875rem;   /* 11px — micro label */
+  --t-2: 0.75rem;     /* 12px — ≈ --text-xs */
+  --t-3: 0.8125rem;   /* 13px — between xs and sm */
+  --t-4: 0.875rem;    /* 14px — ≈ --text-sm */
+  --t-5: 1rem;        /* 16px — ≈ --text-base */
+  --t-6: 1.25rem;     /* 20px — ≈ --text-xl */
+
+  /* Serif font family alias (used in ArchitecturePanel) */
+  --serif: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -455,6 +483,30 @@ a, button { font: inherit; }
   overflow: auto;
   line-height: 1.5;
   box-shadow: var(--shadow-sm);
+}
+
+/* ── Accessibility additions ────────────────────────────────── */
+
+/* Focus ring — keyboard-only, uses accent color */
+.btn:focus-visible {
+  outline: 2px solid var(--accent, #818cf8);
+  outline-offset: 2px;
+}
+
+/* Native checkbox — visible on dark background */
+input[type="checkbox"] {
+  accent-color: #818cf8;
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
+}
+
+/* Reduce motion for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 @keyframes pulse {

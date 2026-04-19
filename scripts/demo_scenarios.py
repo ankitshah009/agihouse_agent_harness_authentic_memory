@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Tuple
 
 from src.aml.db import MemoryStore, StoreConfig
 from src.aml.service import AMLService
-from src.aml.vector import json_dump_vector, safe_float
+from src.aml.vector import json_dump_vector, safe_float, to_float_list
 
 TENANT_ID = "t-geo"
 TENANT_NAME = "Dating Platform (Demo)"
@@ -448,7 +448,27 @@ def run_phase(
         "auth_distance": out["scores"].get("auth_distance"),
         "attack_distance": out["scores"].get("attack_distance"),
     }
-    svc.log_episode(event_payload)
+    logged = svc.log_episode(event_payload)
+    event_id = logged.get("event_id") if isinstance(logged, dict) else None
+
+    decision = out.get("decision")
+    phase_label = row_raw.get("phase")
+    consolidated = False
+    if decision == "allow" and phase_label == "recovery":
+        try:
+            current_embedding = to_float_list(challenge.get("current_embedding"))
+        except Exception:
+            current_embedding = []
+        if current_embedding:
+            svc.upsert_authentic_fingerprint(
+                tenant_id=tenant_id,
+                customer_id=challenge["customer_id"],
+                modality=challenge["modality"],
+                embedding=current_embedding,
+                source_event_id=event_id,
+                quality_score=0.95,
+            )
+            consolidated = True
 
     challenge_view = {
         "challenge_id": challenge["challenge_id"],
@@ -468,6 +488,7 @@ def run_phase(
         "challenge": challenge_view,
         "phase": row_raw,
         "decision": out,
+        "consolidated": consolidated,
     }
 
 
