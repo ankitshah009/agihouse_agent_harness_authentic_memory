@@ -78,7 +78,12 @@ def run_python_in_sandbox(code: str, timeout: Optional[int] = None) -> Dict[str,
 
 def _read_replay_source() -> str:
     replay_path = Path(__file__).parent / "replay_job.py"
-    return replay_path.read_text(encoding="utf-8")
+    source = replay_path.read_text(encoding="utf-8")
+    # We prepend a stdin-injection prelude before shipping this to the sandbox,
+    # so `from __future__ import ...` cannot remain (must be first statement).
+    # Strip any future imports — they are no-ops in the Python 3.13+ sandbox.
+    import re
+    return re.sub(r'^\s*from\s+__future__\s+import[^\n]*\n', '', source, flags=re.MULTILINE)
 
 
 def run_replay_in_sandbox(job_input: Dict[str, Any], timeout: int = DEFAULT_SANDBOX_TIMEOUT) -> Dict[str, Any]:
