@@ -14,7 +14,7 @@
     "test": "pytest tests/ -v"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1",
+    "concurrently": "^10.0.0",
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.2.6"
   },
