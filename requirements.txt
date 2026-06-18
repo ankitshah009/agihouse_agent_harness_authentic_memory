@@ -1,4 +1,4 @@
-mcp[cli]>=1.0.0
+mcp[cli]>=1.27.0
 mysql-connector-python>=8.1.0
 daytona>=0.167.0,<1
 exa-py>=1.0.0
