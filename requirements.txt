@@ -1,6 +1,6 @@
 mcp[cli]>=1.0.0
 mysql-connector-python>=8.1.0
-daytona>=0.167.0,<1
+daytona>=0.169.0,<1
 exa-py>=1.0.0
 pymysql>=1.1
 pytest>=8.0
